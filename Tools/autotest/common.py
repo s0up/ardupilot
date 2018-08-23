@@ -6,6 +6,7 @@ import os
 import shutil
 import sys
 import time
+import pexpect
 
 from pymavlink import mavwp, mavutil
 from pysim import util, vehicleinfo
@@ -184,6 +185,7 @@ class AutoTest(ABC):
         self.set_parameter('LOG_REPLAY', 1)
         self.set_parameter('LOG_DISARMED', 1)
         self.reboot_sitl()
+        self.fetch_parameters()
 
     def fetch_parameters(self):
         self.mavproxy.send("param fetch\n")
@@ -480,7 +482,7 @@ class AutoTest(ABC):
         return False
 
     def set_parameter(self, name, value, add_to_context=True):
-        old_value = self.get_parameter(name)
+        old_value = self.get_parameter(name, retry=2)
         for i in range(1, 10):
             self.mavproxy.send("param set %s %s\n" % (name, str(value)))
             returned_value = self.get_parameter(name)
@@ -493,10 +495,15 @@ class AutoTest(ABC):
                           % (returned_value, value))
         raise ValueError()
 
-    def get_parameter(self, name):
-        self.mavproxy.send("param fetch %s\n" % name)
-        self.mavproxy.expect("%s = ([-0-9.]*)\r\n" % (name,))
-        return float(self.mavproxy.match.group(1))
+    def get_parameter(self, name, retry=1, timeout=60):
+        for i in range(0, retry):
+            self.mavproxy.send("param fetch %s\n" % name)
+            try:
+                self.mavproxy.expect("%s = ([-0-9.]*)\r\n" % (name,), timeout=timeout/retry)
+                return float(self.mavproxy.match.group(1))
+            except pexpect.TIMEOUT:
+                if i < retry:
+                    continue
 
     def context_get(self):
         return self.contexts[-1]
@@ -970,9 +977,7 @@ class AutoTest(ABC):
         self.mav.idle_hooks.append(self.idle_hook)
 
     def run_test(self, desc, function, interact=False):
-        self.progress("#")
-        self.progress("########## %s ##########" % (desc))
-        self.progress("#")
+        self.start_test(desc)
 
         try:
             function()
@@ -984,6 +989,26 @@ class AutoTest(ABC):
                 self.mavproxy.interact()
             return
         self.progress('PASSED: "%s"' % desc)
+
+    def check_test_syntax(self, test_file):
+        """Check mistake on autotest function syntax."""
+        import re
+        self.start_test("Check for syntax mistake in autotest lambda")
+        if not os.path.isfile(test_file):
+            self.progress("File %s does not exist" % test_file)
+        test_file = test_file.rstrip('c')
+        try:
+            with open(test_file) as f:
+                # check for lambda: test_function without paranthesis
+                faulty_strings = re.findall(r"lambda\s*:\s*\w+.\w+\s*\)", f.read())
+                if faulty_strings:
+                    self.progress("Syntax error in autotest lamda at : ")
+                    print(faulty_strings)
+                    raise ErrorException()
+        except ErrorException:
+            self.progress('FAILED: "%s"' % "Check for syntax mistake in autotest lambda")
+            exit(1)
+        self.progress('PASSED: "%s"' % "Check for syntax mistake in autotest lambda")
 
     @abc.abstractmethod
     def init(self):

@@ -579,6 +579,11 @@ MAV_RESULT GCS_MAVLINK_Rover::handle_command_int_packet(const mavlink_command_in
         return MAV_RESULT_ACCEPTED;
     }
 
+    case MAV_CMD_DO_SET_REVERSE:
+        // param1 : Direction (0=Forward, 1=Reverse)
+        rover.control_mode->set_reversed(is_equal(packet.param1,1.0f));
+        return MAV_RESULT_ACCEPTED;
+
 #if MOUNT == ENABLED
     case MAV_CMD_DO_SET_ROI: {
         // param1 : /* Region of interest mode (not used)*/
@@ -718,6 +723,11 @@ MAV_RESULT GCS_MAVLINK_Rover::handle_command_long_packet(const mavlink_command_l
         }
         return MAV_RESULT_FAILED;
     }
+
+    case MAV_CMD_DO_SET_REVERSE:
+        // param1 : Direction (0=Forward, 1=Reverse)
+        rover.control_mode->set_reversed(is_equal(packet.param1,1.0f));
+        return MAV_RESULT_ACCEPTED;
 
     case MAV_CMD_NAV_SET_YAW_SPEED:
     {
