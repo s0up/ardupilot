@@ -72,16 +72,14 @@ PC1 BATT_CURRENT_SENS ADC1 SCALE(1)
 PC3 RSSI_ADC_PIN ADC1 SCALE(1)
 
 # define default battery setup
-# PC5 - ADC12_CH15
-define HAL_BATT_VOLT_PIN 15
-# PC4 - ADC12_CH14
-define HAL_BATT_CURR_PIN 14
+define HAL_BATT_VOLT_PIN 12
+define HAL_BATT_CURR_PIN 11
 define HAL_BATT_VOLT_SCALE 10.1
 define HAL_BATT_CURR_SCALE 30.2
 
 #analog rssi pin (also could be used as analog airspeed input)
 # PB1 - ADC12_CH9
-define BOARD_RSSI_ANA_PIN 9
+define BOARD_RSSI_ANA_PIN 13
 
 # USART1
 PA9 USART1_TX USART1
