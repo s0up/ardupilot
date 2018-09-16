@@ -368,6 +368,8 @@ void DataFlash_HAL::Init()
  
     gcs().send_text(MAV_SEVERITY_INFO, "DFH init");
 
+    hal.scheduler->delay(5000);
+
     df_NumPages=0;
 
 #if BOARD_DATAFLASH_ERASE_SIZE  >= 65536
@@ -751,6 +753,8 @@ uint16_t DataFlash_HAL::get_num_logs(void)
 // This function starts a new log file in the DataFlash
 uint16_t DataFlash_HAL::start_new_log(void)
 {
+    printf("LOGGING STARTED wooowoooo");
+
     uint16_t last_page = find_last_page();
 
     StartRead(last_page);
