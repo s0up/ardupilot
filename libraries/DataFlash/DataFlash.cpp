@@ -6,8 +6,8 @@
 #include "DataFlash_File_sd.h"
 #include "DataFlash_MAVLink.h"
 #include <GCS_MAVLink/GCS.h>
-#if CONFIG_HAL_BOARD == HAL_BOARD_F4LIGHT
-#include "DataFlash_Revo.h"
+#if CONFIG_HAL_BOARD == HAL_BOARD_F4LIGHT || defined(HAL_LOG_ENABLE_FLASH)
+#include "DataFlash_HAL.h"
 #endif
 
 
@@ -112,7 +112,7 @@ void DataFlash_Class::Init(const struct LogStructure *structures, uint8_t num_ty
             _next_backend++;
         }
     }
- #elif CONFIG_HAL_BOARD == HAL_BOARD_F4LIGHT 
+ #elif CONFIG_HAL_BOARD == HAL_BOARD_F4LIGHT || defined(HAL_LOG_ENABLE_FLASH)
 
     if (_params.backend_types == DATAFLASH_BACKEND_FILE ||
         _params.backend_types == DATAFLASH_BACKEND_BOTH) {
@@ -122,14 +122,16 @@ void DataFlash_Class::Init(const struct LogStructure *structures, uint8_t num_ty
         if (message_writer != nullptr)  {
 
   #if defined(BOARD_SDCARD_NAME) || defined(BOARD_DATAFLASH_FATFS)
+            gcs().send_text(MAV_SEVERITY_INFO, "Using SD instead of DataFlash");
             backends[_next_backend] = new DataFlash_File(*this, message_writer, HAL_BOARD_LOG_DIRECTORY);
   #else
-            backends[_next_backend] = new DataFlash_Revo(*this, message_writer); // restore dataflash logs
+            gcs().send_text(MAV_SEVERITY_INFO, "Using DataFlash instead of SD");
+            backends[_next_backend] = new DataFlash_HAL(*this, message_writer); // restore dataflash logs
   #endif
         }
 
         if (backends[_next_backend] == nullptr) {
-            printf("Unable to open DataFlash_Revo");
+            printf("Unable to open DataFlash_HAL");
         } else {
             _next_backend++;
         }

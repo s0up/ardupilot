@@ -4,11 +4,11 @@
 
 
 #include <AP_HAL/AP_HAL.h>
+#include <GCS_MAVLink/GCS.h>
 
+#if (CONFIG_HAL_BOARD == HAL_BOARD_F4LIGHT || defined(HAL_LOG_ENABLE_FLASH)) && defined(BOARD_DATAFLASH_CS_PIN) && !defined(BOARD_DATAFLASH_FATFS)
 
-#if CONFIG_HAL_BOARD == HAL_BOARD_F4LIGHT && defined(BOARD_DATAFLASH_CS_PIN) && !defined(BOARD_DATAFLASH_FATFS)
-
-#include "DataFlash_Revo.h"
+#include "Dataflash_HAL.h"
 
 
 #include <stdlib.h>
@@ -19,8 +19,16 @@
 #include <stdint.h>
 #include <assert.h>
 
+#if CONFIG_HAL_BOARD == HAL_BOARD_F4LIGHT
 #include <AP_HAL_F4Light/Scheduler.h>
 #include <AP_HAL_F4Light/GPIO.h>
+#endif
+
+#if defined(HAL_LOG_ENABLE_FLASH)
+#include <AP_HAL_ChibiOS/Scheduler.h>
+#include <AP_HAL_ChibiOS/GPIO.h>
+#endif
+
 
 #pragma GCC diagnostic ignored "-Wunused-result"
 
@@ -30,17 +38,17 @@ extern const AP_HAL::HAL& hal;
 static uint8_t buffer[2][DF_PAGE_SIZE];
 static uint8_t cmd[4];
 
-AP_HAL::OwnPtr<AP_HAL::SPIDevice> DataFlash_Revo::_spi = nullptr;
-AP_HAL::Semaphore                *DataFlash_Revo::_spi_sem = nullptr;
-bool                              DataFlash_Revo::log_write_started=false;
-bool                              DataFlash_Revo::flash_died=false;
+AP_HAL::OwnPtr<AP_HAL::SPIDevice> DataFlash_HAL::_spi = nullptr;
+AP_HAL::Semaphore                *DataFlash_HAL::_spi_sem = nullptr;
+bool                              DataFlash_HAL::log_write_started=false;
+bool                              DataFlash_HAL::flash_died=false;
 
 
 // the last page holds the log format in first 4 bytes. Please change
 // this if (and only if!) the low level format changes
 #define DF_LOGGING_FORMAT    0x28122013L
 
-uint32_t DataFlash_Revo::bufferspace_available()
+uint32_t DataFlash_HAL::bufferspace_available()
 {
     // because DataFlash_Block devices are ring buffers, we *always*
     // have room...
@@ -48,7 +56,7 @@ uint32_t DataFlash_Revo::bufferspace_available()
 }
 
 // *** DATAFLASH PUBLIC FUNCTIONS ***
-void DataFlash_Revo::StartWrite(uint16_t PageAdr)
+void DataFlash_HAL::StartWrite(uint16_t PageAdr)
 {
     df_BufferIdx  = 0;
     df_BufferNum  = 0;
@@ -56,7 +64,7 @@ void DataFlash_Revo::StartWrite(uint16_t PageAdr)
     WaitReady();
 }
 
-void DataFlash_Revo::FinishWrite(void)
+void DataFlash_HAL::FinishWrite(void)
 {
     // Write Buffer to flash, NO WAIT
     BufferToPage(df_BufferNum, df_PageAdr, 0);      
@@ -81,7 +89,7 @@ void DataFlash_Revo::FinishWrite(void)
     df_BufferIdx = 0;
 }
 
-bool DataFlash_Revo::WritesOK() const
+bool DataFlash_HAL::WritesOK() const
 {
     if (!CardInserted()) {
         return false;
@@ -92,7 +100,7 @@ bool DataFlash_Revo::WritesOK() const
     return true;
 }
 
-bool DataFlash_Revo::_WritePrioritisedBlock(const void *pBuffer, uint16_t size,
+bool DataFlash_HAL::_WritePrioritisedBlock(const void *pBuffer, uint16_t size,
     bool is_critical)
 {
     // is_critical is ignored - we're a ring buffer and never run out
@@ -140,18 +148,18 @@ bool DataFlash_Revo::_WritePrioritisedBlock(const void *pBuffer, uint16_t size,
 
 
 // Get the last page written to
-uint16_t DataFlash_Revo::GetWritePage()
+uint16_t DataFlash_HAL::GetWritePage()
 {
     return df_PageAdr;
 }
 
 // Get the last page read
-uint16_t DataFlash_Revo::GetPage()
+uint16_t DataFlash_HAL::GetPage()
 {
     return df_Read_PageAdr;
 }
 
-void DataFlash_Revo::StartRead(uint16_t PageAdr)
+void DataFlash_HAL::StartRead(uint16_t PageAdr)
 {
     df_Read_BufferNum = 0;
     df_Read_PageAdr   = PageAdr;
@@ -172,7 +180,7 @@ void DataFlash_Revo::StartRead(uint16_t PageAdr)
     df_Read_BufferIdx = sizeof(ph);
 }
 
-bool DataFlash_Revo::ReadBlock(void *pBuffer, uint16_t size)
+bool DataFlash_HAL::ReadBlock(void *pBuffer, uint16_t size)
 {
     while (size > 0) {
         uint16_t n = df_PageSize - df_Read_BufferIdx;
@@ -211,23 +219,23 @@ bool DataFlash_Revo::ReadBlock(void *pBuffer, uint16_t size)
     return true;
 }
 
-void DataFlash_Revo::SetFileNumber(uint16_t FileNumber)
+void DataFlash_HAL::SetFileNumber(uint16_t FileNumber)
 {
     df_FileNumber = FileNumber;
     df_FilePage = 1;
 }
 
-uint16_t DataFlash_Revo::GetFileNumber()
+uint16_t DataFlash_HAL::GetFileNumber()
 {
     return df_FileNumber;
 }
 
-uint16_t DataFlash_Revo::GetFilePage()
+uint16_t DataFlash_HAL::GetFilePage()
 {
     return df_FilePage;
 }
 
-void DataFlash_Revo::EraseAll()
+void DataFlash_HAL::EraseAll()
 {
     log_write_started = false;
 
@@ -251,12 +259,12 @@ void DataFlash_Revo::EraseAll()
 //]
 }
 
-bool DataFlash_Revo::NeedPrep(void)
+bool DataFlash_HAL::NeedPrep(void)
 {
     return NeedErase();
 }
 
-void DataFlash_Revo::Prep()
+void DataFlash_HAL::Prep()
 {
     if (hal.util->get_soft_armed()) {
         // do not want to do any filesystem operations while we are e.g. flying
@@ -270,7 +278,7 @@ void DataFlash_Revo::Prep()
 /*
  *  we need to erase if the logging format has changed
  */
-bool DataFlash_Revo::NeedErase(void)
+bool DataFlash_HAL::NeedErase(void)
 {
     uint32_t version = 0;
     StartRead(df_NumPages+1); // last page
@@ -287,7 +295,7 @@ bool DataFlash_Revo::NeedErase(void)
 /**
   get raw data from a log
  */
-int16_t DataFlash_Revo::get_log_data_raw(uint16_t log_num, uint16_t page, uint32_t offset, uint16_t len, uint8_t *data)
+int16_t DataFlash_HAL::get_log_data_raw(uint16_t log_num, uint16_t page, uint32_t offset, uint16_t len, uint8_t *data)
 {
     uint16_t data_page_size = df_PageSize - sizeof(struct PageHeader);
 
@@ -314,7 +322,7 @@ int16_t DataFlash_Revo::get_log_data_raw(uint16_t log_num, uint16_t page, uint32
 /**
   get data from a log, accounting for adding FMT headers
  */
-int16_t DataFlash_Revo::get_log_data(uint16_t log_num, uint16_t page, uint32_t offset, uint16_t len, uint8_t *data)
+int16_t DataFlash_HAL::get_log_data(uint16_t log_num, uint16_t page, uint32_t offset, uint16_t len, uint8_t *data)
 {
     if (offset == 0) {
         uint8_t header[3];
@@ -354,8 +362,11 @@ int16_t DataFlash_Revo::get_log_data(uint16_t log_num, uint16_t page, uint32_t o
 
 
 // Public Methods //////////////////////////////////////////////////////////////
-void DataFlash_Revo::Init()
+void DataFlash_HAL::Init()
 {
+
+ 
+    gcs().send_text(MAV_SEVERITY_INFO, "DFH init");
 
     df_NumPages=0;
 
@@ -366,14 +377,13 @@ void DataFlash_Revo::Init()
 #endif
     erase_size = BOARD_DATAFLASH_ERASE_SIZE;
     
-    GPIO::_pinMode(DF_RESET,OUTPUT);
-    GPIO::_setSpeed(DF_RESET, GPIO_speed_100MHz);
+    hal.gpio->pinMode(DF_RESET, HAL_GPIO_OUTPUT);
     // Reset the chip
-    GPIO::_write(DF_RESET,0);
-    Scheduler::_delay(1);
-    GPIO::_write(DF_RESET,1);
+    hal.gpio->write(DF_RESET,0);
+    hal.scheduler->delay(1);
+    hal.gpio->write(DF_RESET,1);
 
-    _spi = hal.spi->get_device(HAL_DATAFLASH_NAME);
+    _spi = hal.spi->get_device(BOARD_DATAFLASH_NAME);
 
     if (!_spi) {
         AP_HAL::panic("PANIC: DataFlash SPIDeviceDriver not found");
@@ -385,7 +395,6 @@ void DataFlash_Revo::Init()
         AP_HAL::panic("PANIC: DataFlash SPIDeviceDriver semaphore is null");
         return; /* never reached */
     }
-
     
 
     _spi_sem->take(10);
@@ -411,14 +420,11 @@ void DataFlash_Revo::Init()
 
 }
 
-void DataFlash_Revo::WaitReady() { 
+void DataFlash_HAL::WaitReady() { 
     if(flash_died) return;
     
     uint32_t t = AP_HAL::millis();
     while(ReadStatus()!=0){
-    
-        Scheduler::yield(0); // пока ждем пусть другие работают
-        
         if(AP_HAL::millis() - t > 4000) {
             flash_died = true;
             return;
@@ -427,7 +433,7 @@ void DataFlash_Revo::WaitReady() {
 }
 
 //  try to take a semaphore safely from both in a timer and outside
-bool DataFlash_Revo::_sem_take(uint8_t timeout)
+bool DataFlash_HAL::_sem_take(uint8_t timeout)
 {
 
     if(!_spi_sem || flash_died) return false;
@@ -435,25 +441,25 @@ bool DataFlash_Revo::_sem_take(uint8_t timeout)
     return _spi_sem->take(timeout);
 }
 
-bool DataFlash_Revo::cs_assert(){
+bool DataFlash_HAL::cs_assert(){
     if (!_sem_take(HAL_SEMAPHORE_BLOCK_FOREVER))
         return false;
 
     _spi->set_speed(AP_HAL::Device::SPEED_HIGH);
 
-    GPIO::_write(DF_RESET,0);
+    hal.gpio->write(DF_RESET,0);
     return true;
 }
 
-void DataFlash_Revo::cs_release(){
-    GPIO::_write(DF_RESET,1);
+void DataFlash_HAL::cs_release(){
+    hal.gpio->write(DF_RESET,1);
 
     _spi_sem->give();
 }
 
 
 // This function is mainly to test the device
-void DataFlash_Revo::ReadManufacturerID()
+void DataFlash_HAL::ReadManufacturerID()
 {
     if (!cs_assert()) return;
 
@@ -468,7 +474,8 @@ void DataFlash_Revo::ReadManufacturerID()
     cs_release();
 }
 
-bool DataFlash_Revo::getSectorCount(uint32_t *ptr){
+bool DataFlash_HAL::getSectorCount(uint32_t *ptr){
+    gcs().send_text(MAV_SEVERITY_INFO, "df sector count");
     uint8_t capacity = df_device & 0xFF;
     uint8_t memtype =  (df_device>>8) & 0xFF;
     uint32_t size=0;
@@ -547,7 +554,7 @@ bool DataFlash_Revo::getSectorCount(uint32_t *ptr){
 }
 
 // Read the status register
-uint8_t DataFlash_Revo::ReadStatusReg()
+uint8_t DataFlash_HAL::ReadStatusReg()
 {
     uint8_t tmp;
 
@@ -570,7 +577,7 @@ uint8_t DataFlash_Revo::ReadStatusReg()
     return tmp;
 }
 
-uint8_t DataFlash_Revo::ReadStatus()
+uint8_t DataFlash_HAL::ReadStatus()
 {
   // We only want to extract the READY/BUSY bit
     int32_t status = ReadStatusReg();
@@ -580,7 +587,7 @@ uint8_t DataFlash_Revo::ReadStatus()
 }
 
 
-void DataFlash_Revo::PageToBuffer(unsigned char BufferNum, uint16_t pageNum)
+void DataFlash_HAL::PageToBuffer(unsigned char BufferNum, uint16_t pageNum)
 {
 
     uint32_t PageAdr = pageNum * DF_PAGE_SIZE;
@@ -597,7 +604,7 @@ void DataFlash_Revo::PageToBuffer(unsigned char BufferNum, uint16_t pageNum)
     cs_release();
 }
 
-void DataFlash_Revo::BufferToPage (unsigned char BufferNum, uint16_t pageNum, unsigned char wait)
+void DataFlash_HAL::BufferToPage (unsigned char BufferNum, uint16_t pageNum, unsigned char wait)
 {    
     uint32_t PageAdr = pageNum * DF_PAGE_SIZE;
 
@@ -620,12 +627,12 @@ void DataFlash_Revo::BufferToPage (unsigned char BufferNum, uint16_t pageNum, un
 
 }
 
-void DataFlash_Revo::BufferWrite (unsigned char BufferNum, uint16_t IntPageAdr, unsigned char Data)
+void DataFlash_HAL::BufferWrite (unsigned char BufferNum, uint16_t IntPageAdr, unsigned char Data)
 {
 	buffer[BufferNum][IntPageAdr] = (uint8_t)Data;
 }
 
-void DataFlash_Revo::BlockWrite(uint8_t BufferNum, uint16_t IntPageAdr, 
+void DataFlash_HAL::BlockWrite(uint8_t BufferNum, uint16_t IntPageAdr, 
                                 const void *pHeader, uint8_t hdr_size,
                                 const void *pBuffer, uint16_t size)
 {
@@ -642,7 +649,7 @@ void DataFlash_Revo::BlockWrite(uint8_t BufferNum, uint16_t IntPageAdr,
 // read size bytes of data to a page. The caller must ensure that
 // the data fits within the page, otherwise it will wrap to the
 // start of the page
-bool DataFlash_Revo::BlockRead(uint8_t BufferNum, uint16_t IntPageAdr, void *pBuffer, uint16_t size)
+bool DataFlash_HAL::BlockRead(uint8_t BufferNum, uint16_t IntPageAdr, void *pBuffer, uint16_t size)
 {
     memcpy(pBuffer, &buffer[BufferNum][IntPageAdr], size);
     return true;
@@ -656,7 +663,7 @@ bool DataFlash_Revo::BlockRead(uint8_t BufferNum, uint16_t IntPageAdr, void *pBu
 
 */
 
-void DataFlash_Revo::PageErase (uint16_t pageNum)
+void DataFlash_HAL::PageErase (uint16_t pageNum)
 {
 
     uint32_t PageAdr = pageNum * DF_PAGE_SIZE;
@@ -676,7 +683,7 @@ void DataFlash_Revo::PageErase (uint16_t pageNum)
 }
 
 
-void DataFlash_Revo::ChipErase()
+void DataFlash_HAL::ChipErase()
 {
 
     cmd[0] = JEDEC_BULK_ERASE;
@@ -691,7 +698,7 @@ void DataFlash_Revo::ChipErase()
 }
 
 
-void DataFlash_Revo::Flash_Jedec_WriteEnable(void)
+void DataFlash_HAL::Flash_Jedec_WriteEnable(void)
 {
     // activate dataflash command decoder
     if (!cs_assert()) return;
@@ -705,7 +712,7 @@ void DataFlash_Revo::Flash_Jedec_WriteEnable(void)
 
 // This function determines the number of whole or partial log files in the DataFlash
 // Wholly overwritten files are (of course) lost.
-uint16_t DataFlash_Revo::get_num_logs(void)
+uint16_t DataFlash_HAL::get_num_logs(void)
 {
     uint16_t lastpage;
     uint16_t last;
@@ -742,7 +749,7 @@ uint16_t DataFlash_Revo::get_num_logs(void)
 
 
 // This function starts a new log file in the DataFlash
-uint16_t DataFlash_Revo::start_new_log(void)
+uint16_t DataFlash_HAL::start_new_log(void)
 {
     uint16_t last_page = find_last_page();
 
@@ -782,7 +789,7 @@ uint16_t DataFlash_Revo::start_new_log(void)
 
 // This function finds the first and last pages of a log file
 // The first page may be greater than the last page if the DataFlash has been filled and partially overwritten.
-void DataFlash_Revo::get_log_boundaries(uint16_t log_num, uint16_t & start_page, uint16_t & end_page)
+void DataFlash_HAL::get_log_boundaries(uint16_t log_num, uint16_t & start_page, uint16_t & end_page)
 {
     uint16_t num = get_num_logs();
     uint16_t look;
@@ -835,7 +842,7 @@ void DataFlash_Revo::get_log_boundaries(uint16_t log_num, uint16_t & start_page,
 
 }
 
-bool DataFlash_Revo::check_wrapped(void)
+bool DataFlash_HAL::check_wrapped(void)
 {
     StartRead(df_NumPages);
     if(GetFileNumber() == 0xFFFF)
@@ -846,7 +853,7 @@ bool DataFlash_Revo::check_wrapped(void)
 
 
 // This funciton finds the last log number
-uint16_t DataFlash_Revo::find_last_log(void)
+uint16_t DataFlash_HAL::find_last_log(void)
 {
     uint16_t last_page = find_last_page();
     StartRead(last_page);
@@ -854,7 +861,7 @@ uint16_t DataFlash_Revo::find_last_log(void)
 }
 
 // This function finds the last page of the last file
-uint16_t DataFlash_Revo::find_last_page(void)
+uint16_t DataFlash_HAL::find_last_page(void)
 {
     uint16_t look;
     uint16_t bottom = 1;
@@ -895,7 +902,7 @@ uint16_t DataFlash_Revo::find_last_page(void)
 }
 
 // This function finds the last page of a particular log file
-uint16_t DataFlash_Revo::find_last_page_of_log(uint16_t log_number)
+uint16_t DataFlash_HAL::find_last_page_of_log(uint16_t log_number)
 {
     uint16_t look;
     uint16_t bottom;
@@ -947,7 +954,7 @@ uint16_t DataFlash_Revo::find_last_page_of_log(uint16_t log_number)
 }
 
 
-void DataFlash_Revo::get_log_info(uint16_t log_num, uint32_t &size, uint32_t &time_utc)
+void DataFlash_HAL::get_log_info(uint16_t log_num, uint32_t &size, uint32_t &time_utc)
 {
     uint16_t start, end;
     get_log_boundaries(log_num, start, end);

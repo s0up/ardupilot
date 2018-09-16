@@ -1,15 +1,23 @@
 /* ************************************************************ */
-/* DataFlash_Revo Log library                                 */
+/* DataFlash_HAL Log library                                 */
 /* ************************************************************ */
 #pragma once
 
-#if CONFIG_HAL_BOARD == HAL_BOARD_F4LIGHT
-
 #include <AP_HAL/AP_HAL.h>
 #include "DataFlash_Backend.h"
-#include <AP_HAL_F4Light/AP_HAL_F4Light.h>
-#include <AP_HAL_F4Light/GPIO.h>
 
+
+#if CONFIG_HAL_BOARD == HAL_BOARD_F4LIGHT
+#include <AP_HAL_F4Light/AP_HAL_F4Light.h>
+using namespace F4Light;
+#endif 
+
+#if defined(HAL_LOG_ENABLE_FLASH)
+#include <AP_HAL_ChibiOS/AP_HAL_ChibiOS.h>
+using namespace ChibiOS;
+#endif
+
+#include <AP_HAL/GPIO.h>
 
 // flash size
 #define DF_PAGE_SIZE 256L
@@ -40,10 +48,7 @@
 #define JEDEC_STATUS_SRP0            0x80
 
 
-using namespace F4Light;
-
-
-class DataFlash_Revo : public DataFlash_Backend
+class DataFlash_HAL : public DataFlash_Backend
 {
 private:
     //Methods
@@ -150,7 +155,7 @@ protected:
 
 
 public:
-    DataFlash_Revo(DataFlash_Class &front, DFMessageWriter_DFLogStart *writer) :
+    DataFlash_HAL(DataFlash_Class &front, DFMessageWriter_DFLogStart *writer) :
         DataFlash_Backend(front, writer) { }
         
     void        Init() override;
@@ -191,4 +196,3 @@ public:
     bool logging_started(void) const { return log_write_started; }
 };
 
-#endif // CONFIG_HAL_BOARD == HAL_BOARD_Revo
