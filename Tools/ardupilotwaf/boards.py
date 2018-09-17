@@ -88,6 +88,7 @@ class Board:
             '-Wno-unknown-pragmas',
             '-Wno-trigraphs',
             '-Werror=return-type',
+            '-Werror=unused-result',
         ]
 
         if 'clang' in cfg.env.COMPILER_CC:
@@ -134,6 +135,7 @@ class Board:
             '-Werror=return-type',
             '-Werror=switch',
             '-Werror=sign-compare',
+            '-Werror=unused-result',
             '-Wfatal-errors',
             '-Wno-trigraphs',
         ]
@@ -255,6 +257,10 @@ class sitl(Board):
             CONFIG_HAL_BOARD = 'HAL_BOARD_SITL',
             CONFIG_HAL_BOARD_SUBTYPE = 'HAL_BOARD_SUBTYPE_NONE',
         )
+
+        env.CXXFLAGS += [
+            '-Werror=float-equal'
+        ]
 
         if not cfg.env.DEBUG:
             env.CXXFLAGS += [

@@ -821,13 +821,6 @@ const AP_Param::Info Plane::var_info[] = {
     GSCALAR(override_safety,      "OVERRIDE_SAFETY",  1),
 #endif
 
-    // @Param: INVERTEDFLT_CH
-    // @DisplayName: Inverted flight channel
-    // @Description: A RC input channel number to enable inverted flight. If this is non-zero then the APM will monitor the corresponding RC input channel and will enable inverted flight when the channel goes above 1750.
-    // @Values: 0:Disabled,1:Channel1,2:Channel2,3:Channel3,4:Channel4,5:Channel5,6:Channel6,7:Channel7,8:Channel8
-    // @User: Standard
-    GSCALAR(inverted_flight_ch,     "INVERTEDFLT_CH", 0),
-
 #if HIL_SUPPORT
     // @Param: HIL_MODE
     // @DisplayName: HIL mode enable
@@ -1177,6 +1170,13 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     AP_SUBGROUPINFO(gripper, "GRIP_", 12, ParametersG2, AP_Gripper),
 #endif
 
+    // @Param: FLIGHT_OPTIONS
+    // @DisplayName: Flight mode options
+    // @Description: Flight mode specific options
+    // @Bitmask: 0:Rudder mixing in direct flight modes only (Manual, Stabilize, Acro),1:Use centered throttle in Cruise or FBWB to indicate trim airspeed
+    // @User: Advanced
+    AP_GROUPINFO("FLIGHT_OPTIONS", 13, ParametersG2, flight_options, 0),
+
     AP_GROUPEND
 };
 
@@ -1241,7 +1241,7 @@ const AP_Param::ConversionInfo conversion_table[] = {
     { Parameters::k_param_quadplane,         14,      AP_PARAM_FLOAT, "Q_VXY_P" },
     { Parameters::k_param_quadplane,         15,      AP_PARAM_FLOAT, "Q_VZ_P" },
     { Parameters::k_param_quadplane,         16,      AP_PARAM_FLOAT, "Q_AZ_P" },
-    
+
     { Parameters::k_param_land_slope_recalc_shallow_threshold,0,AP_PARAM_FLOAT, "LAND_SLOPE_RCALC" },
     { Parameters::k_param_land_slope_recalc_steep_threshold_to_abort,0,AP_PARAM_FLOAT, "LAND_ABORT_DEG" },
     { Parameters::k_param_land_pitch_cd,      0,      AP_PARAM_INT16, "LAND_PITCH_CD" },
@@ -1257,9 +1257,10 @@ const AP_Param::ConversionInfo conversion_table[] = {
     { Parameters::k_param_land_flap_percent,  0,      AP_PARAM_INT8,  "LAND_FLAP_PERCENT" },
 
     // battery failsafes
-    { Parameters::k_param_fs_batt_voltage,   0,      AP_PARAM_FLOAT,  "BATT_FS_LOW_VOLT" },
-    { Parameters::k_param_fs_batt_mah,       0,      AP_PARAM_FLOAT,  "BATT_FS_LOW_MAH" },
+    { Parameters::k_param_fs_batt_voltage,    0,      AP_PARAM_FLOAT, "BATT_FS_LOW_VOLT" },
+    { Parameters::k_param_fs_batt_mah,        0,      AP_PARAM_FLOAT, "BATT_FS_LOW_MAH" },
 
+    { Parameters::k_param_arming,             3,      AP_PARAM_INT8,  "ARMING_RUDDER" },
 };
 
 void Plane::load_parameters(void)

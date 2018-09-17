@@ -2023,7 +2023,7 @@ void GCS_MAVLINK::handle_system_time_message(const mavlink_message_t *msg)
 
 MAV_RESULT GCS_MAVLINK::handle_command_camera(const mavlink_command_long_t &packet)
 {
-    AP_Camera *camera = get_camera();
+    AP_Camera *camera = AP::camera();
     if (camera == nullptr) {
         return MAV_RESULT_UNSUPPORTED;
     }
@@ -2316,7 +2316,7 @@ void GCS_MAVLINK::handle_common_message(mavlink_message_t *msg)
 
     case MAVLINK_MSG_ID_DIGICAM_CONTROL:
         {
-            AP_Camera *camera = get_camera();
+            AP_Camera *camera = AP::camera();
             if (camera == nullptr) {
                 return;
             }
@@ -2538,10 +2538,7 @@ MAV_RESULT GCS_MAVLINK::handle_command_flash_bootloader(const mavlink_command_lo
 
 MAV_RESULT GCS_MAVLINK::handle_command_preflight_set_sensor_offsets(const mavlink_command_long_t &packet)
 {
-    Compass *compass = get_compass();
-    if (compass == nullptr) {
-        return MAV_RESULT_UNSUPPORTED;
-    }
+    Compass &compass = AP::compass();
 
     uint8_t compassNumber = -1;
     if (is_equal(packet.param1, 2.0f)) {
@@ -2554,7 +2551,7 @@ MAV_RESULT GCS_MAVLINK::handle_command_preflight_set_sensor_offsets(const mavlin
     if (compassNumber == (uint8_t) -1) {
         return MAV_RESULT_FAILED;
     }
-    compass->set_and_save_offsets(compassNumber, packet.param2, packet.param3, packet.param4);
+    compass.set_and_save_offsets(compassNumber, packet.param2, packet.param3, packet.param4);
     return MAV_RESULT_ACCEPTED;
 }
 
@@ -2640,11 +2637,7 @@ MAV_RESULT GCS_MAVLINK::handle_command_preflight_calibration(const mavlink_comma
 
 MAV_RESULT GCS_MAVLINK::handle_command_mag_cal(const mavlink_command_long_t &packet)
 {
-    Compass *compass = get_compass();
-    if (compass == nullptr) {
-        return MAV_RESULT_UNSUPPORTED;
-    }
-    return compass->handle_mag_cal_command(packet);
+    return AP::compass().handle_mag_cal_command(packet);
 }
 
 MAV_RESULT GCS_MAVLINK::handle_command_request_autopilot_capabilities(const mavlink_command_long_t &packet)
@@ -2702,11 +2695,9 @@ MAV_RESULT GCS_MAVLINK::handle_command_do_gripper(const mavlink_command_long_t &
     switch ((uint8_t)packet.param2) {
     case GRIPPER_ACTION_RELEASE:
         gripper->release();
-        gcs().send_text(MAV_SEVERITY_INFO, "Gripper Released");
         break;
     case GRIPPER_ACTION_GRAB:
         gripper->grab();
-        gcs().send_text(MAV_SEVERITY_INFO, "Gripper Grabbed");
         break;
     default:
         result = MAV_RESULT_FAILED;
@@ -2847,18 +2838,15 @@ void GCS_MAVLINK::handle_command_int(mavlink_message_t *msg)
 
 bool GCS_MAVLINK::try_send_compass_message(const enum ap_message id)
 {
-    Compass *compass = get_compass();
-    if (compass == nullptr) {
-        return true;
-    }
+    Compass &compass = AP::compass();
     bool ret = true;
     switch (id) {
     case MSG_MAG_CAL_PROGRESS:
-        compass->send_mag_cal_progress(chan);
+        compass.send_mag_cal_progress(chan);
         ret = true;;
         break;
     case MSG_MAG_CAL_REPORT:
-        compass->send_mag_cal_report(chan);
+        compass.send_mag_cal_report(chan);
         ret = true;
         break;
     default:
@@ -3030,7 +3018,7 @@ bool GCS_MAVLINK::try_send_message(const enum ap_message id)
 
     case MSG_CAMERA_FEEDBACK:
         {
-            AP_Camera *camera = get_camera();
+            AP_Camera *camera = AP::camera();
             if (camera == nullptr) {
                 break;
             }

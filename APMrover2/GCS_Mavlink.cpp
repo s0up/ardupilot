@@ -217,9 +217,39 @@ void Rover::send_pid_tuning(mavlink_channel_t chan)
     if (g.gcs_pid_mask & 4) {
         pid_info = &g2.attitude_control.get_pitch_to_throttle_pid().get_pid_info();
         mavlink_msg_pid_tuning_send(chan, PID_TUNING_PITCH,
+                                    degrees(pid_info->desired),
+                                    degrees(ahrs.pitch),
+                                    pid_info->FF,
+                                    pid_info->P,
+                                    pid_info->I,
+                                    pid_info->D);
+        if (!HAVE_PAYLOAD_SPACE(chan, PID_TUNING)) {
+            return;
+        }
+    }
+
+    // left wheel rate control pid
+    if (g.gcs_pid_mask & 8) {
+        pid_info = &g2.wheel_rate_control.get_pid(0).get_pid_info();
+        mavlink_msg_pid_tuning_send(chan, 7,
                                     pid_info->desired,
-                                    ahrs.pitch,
-                                    0,
+                                    pid_info->actual,
+                                    pid_info->FF,
+                                    pid_info->P,
+                                    pid_info->I,
+                                    pid_info->D);
+        if (!HAVE_PAYLOAD_SPACE(chan, PID_TUNING)) {
+            return;
+        }
+    }
+
+    // right wheel rate control pid
+    if (g.gcs_pid_mask & 16) {
+        pid_info = &g2.wheel_rate_control.get_pid(1).get_pid_info();
+        mavlink_msg_pid_tuning_send(chan, 8,
+                                    pid_info->desired,
+                                    pid_info->actual,
+                                    pid_info->FF,
                                     pid_info->P,
                                     pid_info->I,
                                     pid_info->D);
@@ -1238,15 +1268,6 @@ bool GCS_MAVLINK_Rover::accept_packet(const mavlink_status_t &status, mavlink_me
     return (msg.sysid == rover.g.sysid_my_gcs);
 }
 
-AP_Camera *GCS_MAVLINK_Rover::get_camera() const
-{
-#if CAMERA == ENABLED
-    return &rover.camera;
-#else
-    return nullptr;
-#endif
-}
-
 AP_AdvancedFailsafe *GCS_MAVLINK_Rover::get_advanced_failsafe() const
 {
 #if ADVANCED_FAILSAFE == ENABLED
@@ -1265,14 +1286,18 @@ AP_VisualOdom *GCS_MAVLINK_Rover::get_visual_odom() const
 #endif
 }
 
-Compass *GCS_MAVLINK_Rover::get_compass() const
-{
-    return &rover.compass;
-}
-
 AP_Mission *GCS_MAVLINK_Rover::get_mission()
 {
     return &rover.mission;
+}
+
+AP_Rally *GCS_MAVLINK_Rover::get_rally() const
+{
+#if AP_RALLY == ENABLED
+    return &rover.g2.rally;
+#else
+    return nullptr;
+#endif
 }
 
 bool GCS_MAVLINK_Rover::set_mode(const uint8_t mode)

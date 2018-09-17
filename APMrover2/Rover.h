@@ -52,7 +52,6 @@
 #include <AP_Notify/AP_Notify.h>                    // Notify library
 #include <AP_OpticalFlow/AP_OpticalFlow.h>          // Optical Flow library
 #include <AP_Param/AP_Param.h>
-#include <AP_Rally/AP_Rally.h>
 #include <AP_RangeFinder/AP_RangeFinder.h>          // Range finder library
 #include <AP_RCMapper/AP_RCMapper.h>                // RC input mapping library
 #include <AP_Relay/AP_Relay.h>                      // APM relay
@@ -65,6 +64,7 @@
 #include <AP_Vehicle/AP_Vehicle.h>                  // needed for AHRS build
 #include <AP_VisualOdom/AP_VisualOdom.h>
 #include <AP_WheelEncoder/AP_WheelEncoder.h>
+#include <AP_WheelEncoder/AP_WheelRateControl.h>
 #include <APM_Control/AR_AttitudeControl.h>
 #include <AP_SmartRTL/AP_SmartRTL.h>
 #include <DataFlash/DataFlash.h>
@@ -78,6 +78,7 @@
 #include <AP_Proximity/AP_Proximity.h>
 #include <AC_Avoidance/AC_Avoid.h>
 #include <AP_Follow/AP_Follow.h>
+#include <AP_OSD/AP_OSD.h>
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
 #include <SITL/SITL.h>
 #endif
@@ -95,6 +96,7 @@
 #include "Parameters.h"
 #include "GCS_Mavlink.h"
 #include "GCS_Rover.h"
+#include "AP_Rally.h"
 #include "RC_Channel.h"                  // RC Channel Library
 
 class Rover : public AP_HAL::HAL::Callbacks {
@@ -102,6 +104,7 @@ public:
     friend class GCS_MAVLINK_Rover;
     friend class Parameters;
     friend class ParametersG2;
+    friend class AP_Rally_Rover;
     friend class AP_Arming_Rover;
 #if ADVANCED_FAILSAFE == ENABLED
     friend class AP_AdvancedFailsafe_Rover;
@@ -118,6 +121,7 @@ public:
     friend class ModeRTL;
     friend class ModeSmartRTL;
     friend class ModeFollow;
+    friend class ModeSimple;
 
     friend class RC_Channel_Rover;
     friend class RC_Channels_Rover;
@@ -203,6 +207,10 @@ private:
     // RSSI
     AP_RSSI rssi;
 
+#if OSD_ENABLED == ENABLED
+    AP_OSD osd;
+#endif
+
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
     SITL::SITL sitl;
 #endif
@@ -278,6 +286,9 @@ private:
         // time when we last detected an obstacle, in milliseconds
         uint32_t detected_time_ms;
     } obstacle;
+
+    // range finder last update (used for DPTH logging)
+    uint32_t rangefinder_last_reading_ms;
 
     // Ground speed
     // The amount current ground speed is below min ground speed.  meters per second
@@ -366,6 +377,7 @@ private:
     ModeRTL mode_rtl;
     ModeSmartRTL mode_smartrtl;
     ModeFollow mode_follow;
+    ModeSimple mode_simple;
 
     // cruise throttle and speed learning
     struct {
@@ -387,6 +399,10 @@ private:
     void one_second_loop(void);
     void update_GPS(void);
     void update_current_mode(void);
+
+    // balance_bot.cpp
+    void balancebot_pitch_control(float &throttle);
+    bool is_balancebot() const;
 
     // capabilities.cpp
     void init_capabilities(void);
@@ -552,11 +568,6 @@ private:
 public:
     void mavlink_delay_cb();
     void failsafe_check();
-
-    // BalanceBot.cpp
-    void balancebot_pitch_control(float &, bool);
-    bool is_balancebot() const;
-
     void update_soft_armed();
     // Motor test
     void motor_test_output();
@@ -566,6 +577,10 @@ public:
 
     // frame type
     uint8_t get_frame_type() { return g2.frame_type.get(); }
+    AP_WheelRateControl& get_wheel_rate_control() { return g2.wheel_rate_control; }
+
+    // Simple mode
+    float simple_sin_yaw;
 };
 
 extern const AP_HAL::HAL& hal;

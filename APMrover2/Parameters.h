@@ -4,6 +4,7 @@
 
 #include "RC_Channel.h"
 #include "AC_Sprayer/AC_Sprayer.h"
+#include "AP_Rally.h"
 
 // Global parameter class.
 //
@@ -202,6 +203,7 @@ public:
         k_param_barometer,
         k_param_notify,
         k_param_button,
+        k_param_osd,
 
         k_param_DataFlash = 253,  // Logging Group
 
@@ -312,6 +314,7 @@ public:
 
     // wheel encoders
     AP_WheelEncoder wheel_encoder;
+    AP_WheelRateControl wheel_rate_control;
 
     // steering and throttle controller
     AR_AttitudeControl attitude_control;
@@ -361,6 +364,12 @@ public:
 
     // Sprayer
     AC_Sprayer sprayer;
+
+    // Rally point library
+    AP_Rally_Rover rally;
+
+    // Simple mode types
+    AP_Int8 simple_type;
 };
 
 extern const AP_Param::Info var_info[];

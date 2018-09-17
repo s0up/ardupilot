@@ -78,6 +78,10 @@ void Rover::init_ardupilot()
     devo_telemetry.init(serial_manager);
 #endif
 
+#if OSD_ENABLED == ENABLED
+    osd.init();
+#endif
+
 #if LOGGING_ENABLED == ENABLED
     log_init();
 #endif
@@ -327,6 +331,9 @@ bool Rover::arm_motors(AP_Arming::ArmingMethod method)
 
     // Set the SmartRTL home location. If activated, SmartRTL will ultimately try to land at this point
     g2.smart_rtl.set_home(true);
+
+    // initialize simple mode heading
+    rover.mode_simple.init_heading();
 
     change_arm_state();
     return true;

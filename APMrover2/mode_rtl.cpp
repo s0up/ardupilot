@@ -11,8 +11,13 @@ bool ModeRTL::_enter()
     // initialise waypoint speed
     set_desired_speed_to_default(true);
 
+    // set target to the closest rally point or home
+#if AP_RALLY == ENABLED
+    set_desired_location(rover.g2.rally.calc_best_rally_or_home_location(rover.current_loc, ahrs.get_home().alt));
+#else
     // set destination
     set_desired_location(rover.home);
+#endif
 
     return true;
 }

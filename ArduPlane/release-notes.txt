@@ -1,3 +1,116 @@
+Release 3.9.2beta2, 15th September 2018
+---------------------------------------
+
+The is the second beta release of the plane 3.9.2 stable release. It
+contains a number of important bug fixes.
+
+ - implement failsafe PWM in IOMCU, for AFS failsafe when FMU dies
+
+ - handle reversed channels correctly in AFS failsafe
+
+ - fixed twin motor plane handling in AFS failsafe
+
+ - fixed a bug in Q_ASSIST_SPEED support for tiltrotors that could
+   lead to zero throttle when assistance triggers.
+
+ - lower default PTCH2SRV_D to 0.04 after reports of oscillation on
+   small flying wings
+
+ - added speed scaler reduction in Q modes when at low airspeed
+
+ - fixed synthetic airspeed estimation to be along +ve X axis
+
+ - fixed relaxing of VTOL attitude controller on transition (thanks to
+   Leonard Hall)
+
+ - default COMPASS_AUTO_ROT to 2 on all boards
+
+ - fixed UART speed rounding bug that caused failure at high board
+   rates
+
+ - fixed a short glitch in position control on quadplane transition
+   (many thanks to Leonard for lots of help with this)
+
+ - fixed RSSI voltage from IOMCU
+
+Thanks to everyone who has contributed, and please report all test
+results with this beta.
+
+Happy flying!
+
+Release 3.9.2beta1, 12th September 2018
+---------------------------------------
+
+The is the first beta release of the plane 3.9.2 stable release. It
+contains a number of important bug fixes.
+
+ - fixed a quadplane bug that could cause large attitude instability
+   during takeoff if the aircraft does not have enough power to climb
+   to its target height. Thanks to Leonard for the fix.
+
+ - fixed a bug that prevented dead-reckoning working on GPS loss.
+
+ - fixed an ADC bug that prevented some boards from using all of their
+   analog input. Thanks to vierfuffzig for reporting!
+
+ - fixed a bug in advanced failsafe support that left RC input to
+   throttle active after termination. Thanks to Michael Thomas for
+   finding this bug.
+
+ - fixed use of OLED displays on the first I2C bus on systems with two
+   I2C buses
+
+Thanks to everyone who has contributed, and please report all test
+results with this beta.
+
+Happy flying!
+
+
+Release 3.9.1, 31st August 2018
+-------------------------------
+
+The ArduPilot dev team are delighted to announce a new stable plane
+release. This is a minor release, but does include some important
+fixes.
+
+The only change over the 3.9.1beta3 release is an increase in the USB
+buffer size to give faster log download over USB.
+
+Other important changes from the 3.9.1beta releases include:
+
+ - updated to default values for some tuning parameters
+
+ - fixed a critical safety issue found by Oliver Volkmann, and fixed
+   by Michael du Breuil. The problem could lead to quadplane motors
+   starting on reboot
+
+ - fixed a bug where RC failsafe could lead rudder input stuck at the
+   last rudder input value in some modes. Thanks to Michael du Breuil
+   for the fix
+
+ - improved DShot and BLHeli-passthrough support, fixing errors
+   reported by BLHeli32 ESCs and making using BLHeliSuite32 much more
+   reliable
+
+ - new tonealarm system, bringing the tones produced under ChibiOS and
+   Linux HALs in line with tones produced under the HAL_PX4 HAL.
+
+ - added a new LED driver for the NCP5623 LED
+
+ - fixed delay caused by parameter writes in AP_Stats
+
+ - fixed default RSSI input pin on some boards
+
+ - fixed the incorrect display of "no io thread heartbeat" message
+
+ - fixed microSD support on some boards due to running out of DMA
+   capable memory
+
+Many thanks to everyone who has been testing the beta releases.
+
+Happy flying!
+
+
 Release 3.9.1beta3, 23rd August 2018
 ------------------------------------
 

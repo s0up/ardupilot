@@ -327,8 +327,8 @@ const AP_Param::GroupInfo QuadPlane::var_info[] = {
 
     // @Param: OPTIONS
     // @DisplayName: quadplane options
-    // @Description: This provides a set of additional control options for quadplanes. LevelTransition means that the wings should be held level to within LEVEL_ROLL_LIMIT degrees during transition to fixed wing flight. If AllowFWTakeoff bit is not set then fixed wing takeoff on quadplanes will instead perform a VTOL takeoff. If AllowFWLand bit is not set then fixed wing land on quadplanes will instead perform a VTOL land.
-    // @Bitmask: 0:LevelTransition,1:AllowFWTakeoff,2:AllowFWLand
+    // @Description: This provides a set of additional control options for quadplanes. LevelTransition means that the wings should be held level to within LEVEL_ROLL_LIMIT degrees during transition to fixed wing flight. If AllowFWTakeoff bit is not set then fixed wing takeoff on quadplanes will instead perform a VTOL takeoff. If AllowFWLand bit is not set then fixed wing land on quadplanes will instead perform a VTOL land. If respect takeoff frame is not set the vehicle will interpret all takeoff waypoints as an altitude above the corrent position.
+    // @Bitmask: 0:LevelTransition,1:AllowFWTakeoff,2:AllowFWLand,3:Respect takeoff frame types
     AP_GROUPINFO("OPTIONS", 58, QuadPlane, options, 0),
 
     AP_SUBGROUPEXTENSION("",59, QuadPlane, var_info2),
@@ -483,7 +483,7 @@ bool QuadPlane::setup(void)
     }
     
     if (hal.util->available_memory() <
-        4096 + sizeof(*motors) + sizeof(*attitude_control) + sizeof(*pos_control) + sizeof(*wp_nav)) {
+        4096 + sizeof(*motors) + sizeof(*attitude_control) + sizeof(*pos_control) + sizeof(*wp_nav) + sizeof(*ahrs_view) + sizeof(*loiter_nav)) {
         gcs().send_text(MAV_SEVERITY_INFO, "Not enough memory for quadplane");
         goto failed;
     }
@@ -693,6 +693,8 @@ void QuadPlane::init_stabilize(void)
  */
 void QuadPlane::multicopter_attitude_rate_update(float yaw_rate_cds)
 {
+    check_attitude_relax();
+
     if (in_vtol_mode() || is_tailsitter()) {
         // use euler angle attitude control
         attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(plane.nav_roll_cd,
@@ -767,6 +769,21 @@ void QuadPlane::run_z_controller(void)
     }
     last_pidz_active_ms = now;
     pos_control->update_z_controller();    
+}
+
+/*
+  check if we should relax the attitude controllers
+
+  We relax them whenever we will be using them after a period of
+  inactivity
+ */
+void QuadPlane::check_attitude_relax(void)
+{
+    uint32_t now = AP_HAL::millis();
+    if (now - last_att_control_ms > 100) {
+        attitude_control->relax_attitude_controllers();
+    }
+    last_att_control_ms = now;
 }
 
 // init quadplane hover mode 
@@ -883,23 +900,25 @@ bool QuadPlane::is_flying(void)
 // crude landing detector to prevent tipover
 bool QuadPlane::should_relax(void)
 {
+    const uint32_t tnow = millis();
+
     bool motor_at_lower_limit = motors->limit.throttle_lower && attitude_control->is_throttle_mix_min();
     if (motors->get_throttle() < 0.01f) {
         motor_at_lower_limit = true;
     }
+
     if (!motor_at_lower_limit) {
         landing_detect.lower_limit_start_ms = 0;
+        return false;
+    } else if (landing_detect.lower_limit_start_ms == 0) {
+        landing_detect.lower_limit_start_ms = tnow;
     }
-    if (motor_at_lower_limit && landing_detect.lower_limit_start_ms == 0) {
-        landing_detect.lower_limit_start_ms = millis();
-    }
-    bool relax_loiter = landing_detect.lower_limit_start_ms != 0 &&
-        (millis() - landing_detect.lower_limit_start_ms) > 1000;
-    return relax_loiter;
+
+    return (tnow - landing_detect.lower_limit_start_ms) > 1000;
 }
 
 // see if we are flying in vtol
-bool QuadPlane::is_flying_vtol(void)
+bool QuadPlane::is_flying_vtol(void) const
 {
     if (!available()) {
         return false;
@@ -926,7 +945,7 @@ bool QuadPlane::is_flying_vtol(void)
   smooth out descent rate for landing to prevent a jerk as we get to
   land_final_alt. 
  */
-float QuadPlane::landing_descent_rate_cms(float height_above_ground)
+float QuadPlane::landing_descent_rate_cms(float height_above_ground) const
 {
     float ret = linear_interpolate(land_speed_cms, wp_nav->get_speed_down(),
                                    height_above_ground,
@@ -946,15 +965,17 @@ void QuadPlane::control_loiter()
         return;
     }
 
+    check_attitude_relax();
 
     if (should_relax()) {
         loiter_nav->soften_for_landing();
     }
 
-    if (millis() - last_loiter_ms > 500) {
+    const uint32_t now = AP_HAL::millis();
+    if (now - last_loiter_ms > 500) {
         loiter_nav->init_target();
     }
-    last_loiter_ms = millis();
+    last_loiter_ms = now;
 
     // motors use full range
     motors->set_desired_spool_state(AP_Motors::DESIRED_THROTTLE_UNLIMITED);
@@ -979,7 +1000,6 @@ void QuadPlane::control_loiter()
     plane.nav_roll_cd = loiter_nav->get_roll();
     plane.nav_pitch_cd = loiter_nav->get_pitch();
 
-    const uint32_t now = AP_HAL::millis();
     if (now - last_pidz_init_ms < (uint32_t)transition_time_ms*2 && !is_tailsitter()) {
         // we limit pitch during initial transition
         float pitch_limit_cd = linear_interpolate(loiter_initial_pitch_cd, aparm.angle_max,
@@ -1021,7 +1041,7 @@ void QuadPlane::control_loiter()
 /*
   get pilot input yaw rate in cd/s
  */
-float QuadPlane::get_pilot_input_yaw_rate_cds(void)
+float QuadPlane::get_pilot_input_yaw_rate_cds(void) const
 {
     if (plane.channel_throttle->get_control_in() <= 0 && !plane.auto_throttle_mode) {
         // the user may be trying to disarm
@@ -1056,7 +1076,7 @@ float QuadPlane::get_desired_yaw_rate_cds(void)
 }
 
 // get pilot desired climb rate in cm/s
-float QuadPlane::get_pilot_desired_climb_rate_cms(void)
+float QuadPlane::get_pilot_desired_climb_rate_cms(void) const
 {
     if (plane.failsafe.rc_failsafe || plane.failsafe.throttle_counter > 0) {
         // descend at 0.5m/s for now
@@ -1094,7 +1114,7 @@ void QuadPlane::set_armed(bool armed)
 /*
   estimate desired climb rate for assistance (in cm/s)
  */
-float QuadPlane::assist_climb_rate_cms(void)
+float QuadPlane::assist_climb_rate_cms(void) const
 {
     float climb_rate;
     if (plane.auto_throttle_mode) {
@@ -1119,7 +1139,7 @@ float QuadPlane::assist_climb_rate_cms(void)
 /*
   calculate desired yaw rate for assistance
  */
-float QuadPlane::desired_auto_yaw_rate_cds(void)
+float QuadPlane::desired_auto_yaw_rate_cds(void) const
 {
     float aspeed;
     if (!ahrs.airspeed_estimate(&aspeed) || aspeed < plane.aparm.airspeed_min) {
@@ -1340,7 +1360,8 @@ void QuadPlane::update_transition(void)
         uint32_t dt = AP_HAL::millis() - transition_start_ms;
         plane.nav_pitch_cd = constrain_float((-transition_rate * dt)*100, -8500, 0);
         plane.nav_roll_cd = 0;
-        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(plane.nav_roll_cd, 
+        check_attitude_relax();
+        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(plane.nav_roll_cd,
                                                                       plane.nav_pitch_cd,
                                                                       0);
         attitude_control->set_throttle_out(motors->get_throttle_hover(), true, 0);
@@ -1395,7 +1416,6 @@ void QuadPlane::update(void)
           make sure we don't have any residual control from previous flight stages
          */
         attitude_control->relax_attitude_controllers();
-        attitude_control->reset_rate_controller_I_terms();
         pos_control->relax_alt_hold_controllers(0);
     }
     
@@ -1744,6 +1764,8 @@ void QuadPlane::vtol_position_controller(void)
     float ekfGndSpdLimit, ekfNavVelGainScaler;    
     ahrs.getEkfControlLimits(ekfGndSpdLimit, ekfNavVelGainScaler);
 
+    check_attitude_relax();
+
     // horizontal position control
     switch (poscontrol.state) {
 
@@ -1969,6 +1991,8 @@ void QuadPlane::takeoff_controller(void)
     float ekfGndSpdLimit, ekfNavVelGainScaler;    
     ahrs.getEkfControlLimits(ekfGndSpdLimit, ekfNavVelGainScaler);
 
+    check_attitude_relax();
+
     setup_target_position();
 
     // set position controller desired velocity and acceleration to zero
@@ -1997,6 +2021,8 @@ void QuadPlane::takeoff_controller(void)
 void QuadPlane::waypoint_controller(void)
 {
     setup_target_position();
+
+    check_attitude_relax();
 
     /*
       this is full copter control of auto flight
@@ -2081,7 +2107,7 @@ void QuadPlane::init_qrtl(void)
     poscontrol.state = QPOS_POSITION1;
     poscontrol.speed_scale = 0;
     pos_control->set_desired_accel_xy(0.0f, 0.0f);
-    pos_control->init_xy_controller(true);
+    pos_control->init_xy_controller();
 }
 
 /*
@@ -2094,7 +2120,14 @@ bool QuadPlane::do_vtol_takeoff(const AP_Mission::Mission_Command& cmd)
     }
 
     plane.set_next_WP(cmd.content.location);
-    plane.next_WP_loc.alt = plane.current_loc.alt + cmd.content.location.alt;
+    if (options & OPTION_RESPECT_TAKEOFF_FRAME) {
+        if (plane.current_loc.alt >= plane.next_WP_loc.alt) {
+            // we are above the takeoff already, no need to do anything
+            return false;
+        }
+    } else {
+        plane.next_WP_loc.alt = plane.current_loc.alt + cmd.content.location.alt;
+    }
     throttle_wait = false;
 
     // set target to current position
@@ -2134,7 +2167,7 @@ bool QuadPlane::do_vtol_land(const AP_Mission::Mission_Command& cmd)
     poscontrol.state = QPOS_POSITION1;
     poscontrol.speed_scale = 0;
     pos_control->set_desired_accel_xy(0.0f, 0.0f);
-    pos_control->init_xy_controller(true);
+    pos_control->init_xy_controller();
 
     throttle_wait = false;
     landing_detect.lower_limit_start_ms = 0;
@@ -2371,12 +2404,13 @@ float QuadPlane::get_weathervane_yaw_rate_cds(void)
         weathervane.last_output = 0;
         return 0;
     }
+    const uint32_t tnow = millis();
     if (plane.channel_rudder->get_control_in() != 0) {
-        weathervane.last_pilot_input_ms = AP_HAL::millis();
+        weathervane.last_pilot_input_ms = tnow;
         weathervane.last_output = 0;
         return 0;
     }
-    if (AP_HAL::millis() - weathervane.last_pilot_input_ms < 3000) {
+    if (tnow - weathervane.last_pilot_input_ms < 3000) {
         weathervane.last_output = 0;
         return 0;
     }

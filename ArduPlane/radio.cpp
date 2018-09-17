@@ -106,9 +106,9 @@ void Plane::init_rc_out_aux()
 */
 void Plane::rudder_arm_disarm_check()
 {
-    AP_Arming_Plane::ArmingRudder arming_rudder = arming.rudder_arming();
+    AP_Arming::ArmingRudder arming_rudder = arming.get_rudder_arming_type();
 
-    if (arming_rudder == AP_Arming_Plane::ARMING_RUDDER_DISABLED) {
+    if (arming_rudder == AP_Arming::ARMING_RUDDER_DISABLED) {
         //parameter disallows rudder arming/disabling
         return;
     }
@@ -147,7 +147,7 @@ void Plane::rudder_arm_disarm_check()
 			// not at full right rudder
 			rudder_arm_timer = 0;
 		}
-	} else if (arming_rudder == AP_Arming_Plane::ARMING_RUDDER_ARMDISARM && !is_flying()) {
+	} else if ((arming_rudder == AP_Arming::ARMING_RUDDER_ARMDISARM) && !is_flying()) {
 		// when armed and not flying, full left rudder starts disarming counter
 		if (channel_rudder->get_control_in() < -4000) {
 			uint32_t now = millis();
@@ -210,22 +210,33 @@ void Plane::read_radio()
 
     rudder_arm_disarm_check();
 
+    // potentially swap inputs for tailsitters
+    quadplane.tailsitter_check_input();
+
+    // check for transmitter tuning changes
+    tuning.check_input(control_mode);
+}
+
+int16_t Plane::rudder_input(void)
+{
     if (g.rudder_only != 0) {
         // in rudder only mode we discard rudder input and get target
         // attitude from the roll channel.
-        rudder_input = 0;
-    } else if (stick_mixing_enabled()) {
-        rudder_input = channel_rudder->get_control_in();
-    } else {
-        // no stick mixing
-        rudder_input = 0;
+        return 0;
     }
 
-    // potentially swap inputs for tailsitters
-    quadplane.tailsitter_check_input();
+    if ((g2.flight_options & FlightOptions::DIRECT_RUDDER_ONLY) &&
+        !(control_mode == MANUAL || control_mode == STABILIZE || control_mode == ACRO)) {
+        // the user does not want any input except in these modes
+        return 0;
+    }
+
+    if (stick_mixing_enabled()) {
+        return channel_rudder->get_control_in();
+    }
+
+    return 0;
     
-    // check for transmitter tuning changes
-    tuning.check_input(control_mode);
 }
 
 void Plane::control_failsafe()
@@ -236,7 +247,6 @@ void Plane::control_failsafe()
         channel_roll->set_radio_in(channel_roll->get_radio_trim());
         channel_pitch->set_radio_in(channel_pitch->get_radio_trim());
         channel_rudder->set_radio_in(channel_rudder->get_radio_trim());
-        rudder_input = 0;
 
         // note that we don't set channel_throttle->radio_in to radio_trim,
         // as that would cause throttle failsafe to not activate
@@ -340,7 +350,7 @@ bool Plane::trim_radio()
   return true if throttle level is below throttle failsafe threshold
   or RC input is invalid
  */
-bool Plane::rc_failsafe_active(void)
+bool Plane::rc_failsafe_active(void) const
 {
     if (!g.throttle_fs_enabled) {
         return false;

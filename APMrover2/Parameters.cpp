@@ -33,7 +33,7 @@ const AP_Param::Info Rover::var_info[] = {
     // @Param: INITIAL_MODE
     // @DisplayName: Initial driving mode
     // @Description: This selects the mode to start in on boot. This is useful for when you want to start in AUTO mode on boot without a receiver. Usually used in combination with when AUTO_TRIGGER_PIN or AUTO_KICKSTART.
-    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,10:Auto,11:RTL,12:SmartRTL,15:Guided
+    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,7:Simple,10:Auto,11:RTL,12:SmartRTL,15:Guided
     // @User: Advanced
     GSCALAR(initial_mode,        "INITIAL_MODE",     Mode::Number::MANUAL),
 
@@ -64,8 +64,8 @@ const AP_Param::Info Rover::var_info[] = {
     // @DisplayName: GCS PID tuning mask
     // @Description: bitmask of PIDs to send MAVLink PID_TUNING messages for
     // @User: Advanced
-    // @Values: 0:None,1:Steering,2:Throttle,4:Pitch
-    // @Bitmask: 0:Steering,1:Throttle,2:Pitch
+    // @Values: 0:None,1:Steering,2:Throttle,4:Pitch,8:Left Wheel,16:Right Wheel
+    // @Bitmask: 0:Steering,1:Throttle,2:Pitch,3:Left Wheel,4:Right Wheel
     GSCALAR(gcs_pid_mask,           "GCS_PID_MASK",     0),
 
     // @Param: MAG_ENABLE
@@ -211,7 +211,7 @@ const AP_Param::Info Rover::var_info[] = {
 
     // @Param: MODE1
     // @DisplayName: Mode1
-    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,10:Auto,11:RTL,12:SmartRTL,15:Guided
+    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,7:Simple,10:Auto,11:RTL,12:SmartRTL,15:Guided
     // @User: Standard
     // @Description: Driving mode for switch position 1 (910 to 1230 and above 2049)
     GSCALAR(mode1,           "MODE1",         Mode::Number::MANUAL),
@@ -219,35 +219,35 @@ const AP_Param::Info Rover::var_info[] = {
     // @Param: MODE2
     // @DisplayName: Mode2
     // @Description: Driving mode for switch position 2 (1231 to 1360)
-    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,10:Auto,11:RTL,12:SmartRTL,15:Guided
+    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,7:Simple,10:Auto,11:RTL,12:SmartRTL,15:Guided
     // @User: Standard
     GSCALAR(mode2,           "MODE2",         Mode::Number::MANUAL),
 
     // @Param: MODE3
     // @DisplayName: Mode3
     // @Description: Driving mode for switch position 3 (1361 to 1490)
-    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,10:Auto,11:RTL,12:SmartRTL,15:Guided
+    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,7:Simple,10:Auto,11:RTL,12:SmartRTL,15:Guided
     // @User: Standard
     GSCALAR(mode3,           "MODE3",         Mode::Number::MANUAL),
 
     // @Param: MODE4
     // @DisplayName: Mode4
     // @Description: Driving mode for switch position 4 (1491 to 1620)
-    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,10:Auto,11:RTL,12:SmartRTL,15:Guided
+    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,7:Simple,10:Auto,11:RTL,12:SmartRTL,15:Guided
     // @User: Standard
     GSCALAR(mode4,           "MODE4",         Mode::Number::MANUAL),
 
     // @Param: MODE5
     // @DisplayName: Mode5
     // @Description: Driving mode for switch position 5 (1621 to 1749)
-    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,10:Auto,11:RTL,12:SmartRTL,15:Guided
+    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,7:Simple,10:Auto,11:RTL,12:SmartRTL,15:Guided
     // @User: Standard
     GSCALAR(mode5,           "MODE5",         Mode::Number::MANUAL),
 
     // @Param: MODE6
     // @DisplayName: Mode6
     // @Description: Driving mode for switch position 6 (1750 to 2049)
-    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,10:Auto,11:RTL,12:SmartRTL,15:Guided
+    // @Values: 0:Manual,1:Acro,3:Steering,4:Hold,5:Loiter,6:Follow,7:Simple,10:Auto,11:RTL,12:SmartRTL,15:Guided
     // @User: Standard
     GSCALAR(mode6,           "MODE6",         Mode::Number::MANUAL),
 
@@ -413,6 +413,12 @@ const AP_Param::Info Rover::var_info[] = {
     // @Path: Parameters.cpp
     GOBJECT(g2, "",  ParametersG2),
 
+#if OSD_ENABLED == ENABLED
+    // @Group: OSD
+    // @Path: ../libraries/AP_OSD/AP_OSD.cpp
+    GOBJECT(osd, "OSD", AP_OSD),
+#endif
+
     AP_VAREND
 };
 
@@ -575,6 +581,24 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @Path: ../libraries/AC_Sprayer/AC_Sprayer.cpp
     AP_SUBGROUPINFO(sprayer, "SPRAY_", 26, ParametersG2, AC_Sprayer),
 
+    // @Group: WRC
+    // @Path: ../libraries/AP_WheelEncoder/AP_WheelRateControl.cpp
+    AP_SUBGROUPINFO(wheel_rate_control, "WRC", 27, ParametersG2, AP_WheelRateControl),
+
+#if AP_RALLY == ENABLED
+    // @Group: RALLY_
+    // @Path: AP_Rally.cpp,../libraries/AP_Rally/AP_Rally.cpp
+    AP_SUBGROUPINFO(rally, "RALLY_", 28, ParametersG2, AP_Rally_Rover),
+#endif
+
+    // @Param: SIMPLE_TYPE
+    // @DisplayName: Simple_Type
+    // @Description: Simple mode types
+    // @Values: 0:InitialHeading,1:CardinalDirections
+    // @User: Standard
+    // @RebootRequired: True
+    AP_GROUPINFO("SIMPLE_TYPE", 29, ParametersG2, simple_type, 0),
+
     AP_GROUPEND
 };
 
@@ -599,12 +623,14 @@ ParametersG2::ParametersG2(void)
 #endif
     beacon(rover.serial_manager),
     motors(rover.ServoRelayEvents),
+    wheel_rate_control(wheel_encoder),
     attitude_control(rover.ahrs),
     smart_rtl(),
     fence(rover.ahrs),
     proximity(rover.serial_manager),
     avoid(rover.ahrs, fence, rover.g2.proximity, &rover.g2.beacon),
-    follow()
+    follow(),
+    rally(rover.ahrs)
 {
     AP_Param::setup_object_defaults(this, var_info);
 }
