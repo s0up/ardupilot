@@ -124,7 +124,6 @@ define HAL_LOG_ENABLE_FLASH
 define BOARD_DATAFLASH_CS_PIN 10
 define HAL_BOARD_LOG_DIRECTORY ""
 define HAL_STORAGE_SIZE 15360
-define STORAGE_FLASH_PAGE 2
 
 # reserve 32k for bootloader and 32k for flash storage
 FLASH_RESERVE_START_KB 64

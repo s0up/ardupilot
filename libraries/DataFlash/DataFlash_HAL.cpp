@@ -163,7 +163,8 @@ void DataFlash_HAL::StartRead(uint16_t PageAdr)
 {
     df_Read_BufferNum = 0;
     df_Read_PageAdr   = PageAdr;
-
+    printf("page address is: %d\n", PageAdr);
+    
     // disable writing while reading
     log_write_started = false;
 
@@ -178,6 +179,7 @@ void DataFlash_HAL::StartRead(uint16_t PageAdr)
     df_FileNumber = ph.FileNumber;
     df_FilePage   = ph.FilePage;
     df_Read_BufferIdx = sizeof(ph);
+    printf("fn: %d, fp: %d, idx: %d\n", df_FileNumber, df_FilePage, df_Read_BufferIdx);
 }
 
 bool DataFlash_HAL::ReadBlock(void *pBuffer, uint16_t size)
@@ -238,8 +240,10 @@ uint16_t DataFlash_HAL::GetFilePage()
 void DataFlash_HAL::EraseAll()
 {
     log_write_started = false;
-
+    printf("Erasing!\n");
     ChipErase();
+    printf("Erased.\n");
+   
 
     // write the logging format in the last page
     hal.scheduler->delay(100);
@@ -569,7 +573,7 @@ uint8_t DataFlash_HAL::ReadStatusReg()
     tmp = spi_read(); // We only want to extract the READY/BUSY bit
 #else
     cmd[0] = JEDEC_READ_STATUS;
-
+    
     _spi->transfer(cmd, 1, &cmd[1], 1);
     tmp = cmd[1];
 #endif
@@ -583,17 +587,9 @@ uint8_t DataFlash_HAL::ReadStatus()
 {
   // We only want to extract the READY/BUSY bit
     int32_t status = ReadStatusReg();
-
-    if(status != JEDEC_STATUS_BUSY){
-        return 0;
-    } else {
-        return -1;
-    }
-
-    /*
     if (status < 0)
             return -1;
-    return status & JEDEC_STATUS_BUSY;*/
+    return status & JEDEC_STATUS_BUSY;
 }
 
 
@@ -610,8 +606,6 @@ void DataFlash_HAL::PageToBuffer(unsigned char BufferNum, uint16_t pageNum)
     cmd[3] = (PageAdr >>  0) & 0xff;
 
     _spi->transfer(cmd, 4, buffer[BufferNum], DF_PAGE_SIZE);
-
-    printf("Tramsferred data %lx from page address %ld\n", buffer[BufferNum], PageAdr);
     
     cs_release();
 }
@@ -632,9 +626,7 @@ void DataFlash_HAL::BufferToPage (unsigned char BufferNum, uint16_t pageNum, uns
     _spi->transfer(cmd, 4,NULL, 0);
 
     _spi->transfer(buffer[BufferNum], DF_PAGE_SIZE, NULL, 0);
-
-    printf("Transferred data %lx from buffer to page with address %ld\n", buffer[BufferNum], PageAdr);
-
+    printf("wrote buffer num %d to page num %d\n", BufferNum, pageNum);
     cs_release();
 
     if(wait)   WaitReady();
@@ -665,8 +657,6 @@ void DataFlash_HAL::BlockWrite(uint8_t BufferNum, uint16_t IntPageAdr,
 // start of the page
 bool DataFlash_HAL::BlockRead(uint8_t BufferNum, uint16_t IntPageAdr, void *pBuffer, uint16_t size)
 {
-    printf("Reading block from %lx with integer page address %ld with size of %ld\n", &buffer[BufferNum], IntPageAdr, size);
-
     memcpy(pBuffer, &buffer[BufferNum][IntPageAdr], size);
     return true;
 }
@@ -702,11 +692,13 @@ void DataFlash_HAL::PageErase (uint16_t pageNum)
 void DataFlash_HAL::ChipErase()
 {
 
+    printf("In chipErase\n");
     cmd[0] = JEDEC_BULK_ERASE;
 
     Flash_Jedec_WriteEnable();
     
     if (!cs_assert()) return;
+    printf("about to transfer zeros\n");
 
     _spi->transfer(cmd, 1, NULL, 0);
         
@@ -716,40 +708,12 @@ void DataFlash_HAL::ChipErase()
 
 void DataFlash_HAL::Flash_Jedec_WriteEnable(void)
 {
-    uint8_t tmp;
-
-    if (!cs_assert()) return;
-
-    cmd[0] = JEDEC_WRITE_STATUS;
-
-    _spi->transfer(cmd, 1, &cmd[1], 1);
-    tmp = cmd[1];
-
-    printf("Status reg (pre) is %lx\n", tmp);
-
-    cs_release();
-
-
     // activate dataflash command decoder
     if (!cs_assert()) return;
 
-    cmd[0] = JEDEC_WRITE_ENABLE;
-
-    _spi->transfer(cmd, 1, NULL, 0);
-
+    spi_write(JEDEC_WRITE_ENABLE);
+    printf("write enabled\n");
     cs_release();
-
-    if (!cs_assert()) return;
-
-    cmd[0] = JEDEC_WRITE_STATUS;
-
-    _spi->transfer(cmd, 1, &cmd[1], 1);
-    tmp = cmd[1];
-
-    printf("Status reg (post) is %lx\n", tmp);
-
-    cs_release();
-
 }
 
 //////////////////////////////////////////
@@ -795,6 +759,8 @@ uint16_t DataFlash_HAL::get_num_logs(void)
 // This function starts a new log file in the DataFlash
 uint16_t DataFlash_HAL::start_new_log(void)
 {
+    printf("LOGGING STARTED wooowoooo");
+
     uint16_t last_page = find_last_page();
 
     StartRead(last_page);
