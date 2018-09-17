@@ -583,9 +583,17 @@ uint8_t DataFlash_HAL::ReadStatus()
 {
   // We only want to extract the READY/BUSY bit
     int32_t status = ReadStatusReg();
+
+    if(status != JEDEC_STATUS_BUSY){
+        return 0;
+    } else {
+        return -1;
+    }
+
+    /*
     if (status < 0)
             return -1;
-    return status & JEDEC_STATUS_BUSY;
+    return status & JEDEC_STATUS_BUSY;*/
 }
 
 
@@ -602,6 +610,8 @@ void DataFlash_HAL::PageToBuffer(unsigned char BufferNum, uint16_t pageNum)
     cmd[3] = (PageAdr >>  0) & 0xff;
 
     _spi->transfer(cmd, 4, buffer[BufferNum], DF_PAGE_SIZE);
+
+    printf("Tramsferred data %lx from page address %ld\n", buffer[BufferNum], PageAdr);
     
     cs_release();
 }
@@ -622,6 +632,8 @@ void DataFlash_HAL::BufferToPage (unsigned char BufferNum, uint16_t pageNum, uns
     _spi->transfer(cmd, 4,NULL, 0);
 
     _spi->transfer(buffer[BufferNum], DF_PAGE_SIZE, NULL, 0);
+
+    printf("Transferred data %lx from buffer to page with address %ld\n", buffer[BufferNum], PageAdr);
 
     cs_release();
 
@@ -653,6 +665,8 @@ void DataFlash_HAL::BlockWrite(uint8_t BufferNum, uint16_t IntPageAdr,
 // start of the page
 bool DataFlash_HAL::BlockRead(uint8_t BufferNum, uint16_t IntPageAdr, void *pBuffer, uint16_t size)
 {
+    printf("Reading block from %lx with integer page address %ld with size of %ld\n", &buffer[BufferNum], IntPageAdr, size);
+
     memcpy(pBuffer, &buffer[BufferNum][IntPageAdr], size);
     return true;
 }
@@ -702,12 +716,40 @@ void DataFlash_HAL::ChipErase()
 
 void DataFlash_HAL::Flash_Jedec_WriteEnable(void)
 {
+    uint8_t tmp;
+
+    if (!cs_assert()) return;
+
+    cmd[0] = JEDEC_WRITE_STATUS;
+
+    _spi->transfer(cmd, 1, &cmd[1], 1);
+    tmp = cmd[1];
+
+    printf("Status reg (pre) is %lx\n", tmp);
+
+    cs_release();
+
+
     // activate dataflash command decoder
     if (!cs_assert()) return;
 
-    spi_write(JEDEC_WRITE_ENABLE);
+    cmd[0] = JEDEC_WRITE_ENABLE;
+
+    _spi->transfer(cmd, 1, NULL, 0);
 
     cs_release();
+
+    if (!cs_assert()) return;
+
+    cmd[0] = JEDEC_WRITE_STATUS;
+
+    _spi->transfer(cmd, 1, &cmd[1], 1);
+    tmp = cmd[1];
+
+    printf("Status reg (post) is %lx\n", tmp);
+
+    cs_release();
+
 }
 
 //////////////////////////////////////////
@@ -753,8 +795,6 @@ uint16_t DataFlash_HAL::get_num_logs(void)
 // This function starts a new log file in the DataFlash
 uint16_t DataFlash_HAL::start_new_log(void)
 {
-    printf("LOGGING STARTED wooowoooo");
-
     uint16_t last_page = find_last_page();
 
     StartRead(last_page);
