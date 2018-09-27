@@ -421,6 +421,7 @@ void DataFlash_HAL::Init()
     log_write_started = true;
 
     df_PageSize = DF_PAGE_SIZE;
+    _initialised = true;
 
 
 
@@ -698,8 +699,6 @@ void DataFlash_HAL::ChipErase()
     Flash_Jedec_WriteEnable();
     
     if (!cs_assert()) return;
-    printf("about to transfer zeros\n");
-
     _spi->transfer(cmd, 1, NULL, 0);
         
     cs_release();
