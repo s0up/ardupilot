@@ -108,43 +108,21 @@ extern const AP_HAL::HAL& hal;
 void
 AP_Camera::servo_pic()
 {
-    SRV_Channels::set_output_pwm(SRV_Channel::k_cam_trigger, _servo_on_pwm);
 
-    // leave a message that it should be active for this many loops (assumes 50hz loops)
-    _trigger_counter = constrain_int16(_trigger_duration*5,0,255);
 }
 
 /// basic relay activation
 void
 AP_Camera::relay_pic()
 {
-    if (_relay_on) {
-        _apm_relay->on(0);
-    } else {
-        _apm_relay->off(0);
-    }
 
-    // leave a message that it should be active for this many loops (assumes 50hz loops)
-    _trigger_counter = constrain_int16(_trigger_duration*5,0,255);
 }
 
 /// single entry point to take pictures
 ///  set send_mavlink_msg to true to send DO_DIGICAM_CONTROL message to all components
 void AP_Camera::trigger_pic()
 {
-    setup_feedback_callback();
 
-    _image_index++;
-    switch (_trigger_type) {
-    case AP_CAMERA_TRIGGER_TYPE_SERVO:
-        servo_pic();                    // Servo operated camera
-        break;
-    case AP_CAMERA_TRIGGER_TYPE_RELAY:
-        relay_pic();                    // basic relay activation
-        break;
-    }
-
-    log_picture();
 }
 
 /// de-activate the trigger after some delay, but without using a delay() function
@@ -152,116 +130,24 @@ void AP_Camera::trigger_pic()
 void
 AP_Camera::trigger_pic_cleanup()
 {
-    if (_trigger_counter) {
-        _trigger_counter--;
-    } else {
-        switch (_trigger_type) {
-        case AP_CAMERA_TRIGGER_TYPE_SERVO:
-            SRV_Channels::set_output_pwm(SRV_Channel::k_cam_trigger, _servo_off_pwm);
-            break;
-        case AP_CAMERA_TRIGGER_TYPE_RELAY:
-            if (_relay_on) {
-                _apm_relay->off(0);
-            } else {
-                _apm_relay->on(0);
-            }
-            break;
-        }
-    }
 
-    if (_trigger_counter_cam_function) {
-        _trigger_counter_cam_function--;
-    } else {
-        switch (_type) {
-        case AP_Camera::CAMERA_TYPE_BMMCC:
-            SRV_Channels::set_output_pwm(SRV_Channel::k_cam_iso, _servo_off_pwm);
-            break;
-        }
-    }
 }
 
 /// decode deprecated MavLink message that controls camera.
 void
 AP_Camera::control_msg(const mavlink_message_t* msg)
 {
-    __mavlink_digicam_control_t packet;
-    mavlink_msg_digicam_control_decode(msg, &packet);
 
-    control(packet.session, packet.zoom_pos, packet.zoom_step, packet.focus_lock, packet.shot, packet.command_id);
 }
 
 void AP_Camera::configure(float shooting_mode, float shutter_speed, float aperture, float ISO, float exposure_type, float cmd_id, float engine_cutoff_time)
 {
-    // we cannot process the configure command so convert to mavlink message
-    // and send to all components in case they and process it
 
-    mavlink_message_t msg;
-    mavlink_command_long_t mav_cmd_long = {};
-
-    // convert mission command to mavlink command_long
-    mav_cmd_long.command = MAV_CMD_DO_DIGICAM_CONFIGURE;
-    mav_cmd_long.param1 = shooting_mode;
-    mav_cmd_long.param2 = shutter_speed;
-    mav_cmd_long.param3 = aperture;
-    mav_cmd_long.param4 = ISO;
-    mav_cmd_long.param5 = exposure_type;
-    mav_cmd_long.param6 = cmd_id;
-    mav_cmd_long.param7 = engine_cutoff_time;
-
-    // Encode Command long into MAVLINK msg
-    mavlink_msg_command_long_encode(0, 0, &msg, &mav_cmd_long);
-
-    // send to all components
-    GCS_MAVLINK::send_to_components(&msg);
-
-    if (_type == AP_Camera::CAMERA_TYPE_BMMCC) {
-        // Set a trigger for the additional functions that are flip controlled (so far just ISO and Record Start / Stop use this method, will add others if required)
-        _trigger_counter_cam_function = constrain_int16(_trigger_duration*5,0,255);
-
-        // If the message contains non zero values then use them for the below functions
-        if (ISO > 0) {
-            SRV_Channels::set_output_pwm(SRV_Channel::k_cam_iso, _servo_on_pwm);
-        }
-
-        if (aperture > 0) {
-            SRV_Channels::set_output_pwm(SRV_Channel::k_cam_aperture, (int)aperture);
-        }
-
-        if (shutter_speed > 0) {
-            SRV_Channels::set_output_pwm(SRV_Channel::k_cam_shutter_speed, (int)shutter_speed);
-        }
-
-        // Use the shooting mode PWM value for the BMMCC as the focus control - no need to modify or create a new MAVlink message type.
-        if (shooting_mode > 0) {
-            SRV_Channels::set_output_pwm(SRV_Channel::k_cam_focus, (int)shooting_mode);
-        }
-    }
 }
 
 void AP_Camera::control(float session, float zoom_pos, float zoom_step, float focus_lock, float shooting_cmd, float cmd_id)
 {
-    // take picture
-    if (is_equal(shooting_cmd,1.0f)) {
-        trigger_pic();
-    }
 
-    mavlink_message_t msg;
-    mavlink_command_long_t mav_cmd_long = {};
-
-    // convert command to mavlink command long
-    mav_cmd_long.command = MAV_CMD_DO_DIGICAM_CONTROL;
-    mav_cmd_long.param1 = session;
-    mav_cmd_long.param2 = zoom_pos;
-    mav_cmd_long.param3 = zoom_step;
-    mav_cmd_long.param4 = focus_lock;
-    mav_cmd_long.param5 = shooting_cmd;
-    mav_cmd_long.param6 = cmd_id;
-
-    // Encode Command long into MAVLINK msg
-    mavlink_msg_command_long_encode(0, 0, &msg, &mav_cmd_long);
-
-    // send to all components
-    GCS_MAVLINK::send_to_components(&msg);
 }
 
 /*
@@ -269,23 +155,7 @@ void AP_Camera::control(float session, float zoom_pos, float zoom_step, float fo
  */
 void AP_Camera::send_feedback(mavlink_channel_t chan)
 {
-    float altitude, altitude_rel;
-    if (current_loc.flags.relative_alt) {
-        altitude = current_loc.alt+ahrs.get_home().alt;
-        altitude_rel = current_loc.alt;
-    } else {
-        altitude = current_loc.alt;
-        altitude_rel = current_loc.alt - ahrs.get_home().alt;
-    }
 
-    mavlink_msg_camera_feedback_send(
-        chan,
-        AP::gps().time_epoch_usec(),
-        0, 0, _image_index,
-        current_loc.lat, current_loc.lng,
-        altitude*1e-2f, altitude_rel*1e-2f,
-        ahrs.roll_sensor*1e-2f, ahrs.pitch_sensor*1e-2f, ahrs.yaw_sensor*1e-2f,
-        0.0f, CAMERA_FEEDBACK_PHOTO, _camera_trigger_logged);
 }
 
 
@@ -293,44 +163,7 @@ void AP_Camera::send_feedback(mavlink_channel_t chan)
 */
 void AP_Camera::update()
 {
-    if (AP::gps().status() < AP_GPS::GPS_OK_FIX_3D) {
-        return;
-    }
 
-    if (is_zero(_trigg_dist)) {
-        return;
-    }
-    if (_last_location.lat == 0 && _last_location.lng == 0) {
-        _last_location = current_loc;
-        return;
-    }
-    if (_last_location.lat == current_loc.lat && _last_location.lng == current_loc.lng) {
-        // we haven't moved - this can happen as update() may
-        // be called without a new GPS fix
-        return;
-    }
-
-    if (get_distance(current_loc, _last_location) < _trigg_dist) {
-        return;
-    }
-
-    if (_max_roll > 0 && fabsf(ahrs.roll_sensor*1e-2f) > _max_roll) {
-        return;
-    }
-
-    if (_is_in_auto_mode != true && _auto_mode_only != 0) {
-        return;
-    }
-
-    uint32_t tnow = AP_HAL::millis();
-    if (tnow - _last_photo_time < (unsigned) _min_interval) {
-        return;
-    }
-
-    take_picture();
-
-    _last_location = current_loc;
-    _last_photo_time = tnow;
 }
 
 /*
@@ -338,8 +171,7 @@ void AP_Camera::update()
  */
 void AP_Camera::feedback_pin_isr(uint8_t pin, bool high, uint32_t timestamp_us)
 {
-    _feedback_timestamp_us = timestamp_us;
-    _camera_trigger_count++;
+
 }
 
 /*
@@ -348,14 +180,7 @@ void AP_Camera::feedback_pin_isr(uint8_t pin, bool high, uint32_t timestamp_us)
  */
 void AP_Camera::feedback_pin_timer(void)
 {
-    uint8_t pin_state = hal.gpio->read(_feedback_pin);
-    uint8_t trigger_polarity = _feedback_polarity==0?0:1;
-    if (pin_state == trigger_polarity &&
-        _last_pin_state != trigger_polarity) {
-        _feedback_timestamp_us = AP_HAL::micros();
-        _camera_trigger_count++;
-    }
-    _last_pin_state = pin_state;
+
 }
 
 /*
@@ -364,65 +189,19 @@ void AP_Camera::feedback_pin_timer(void)
  */
 void AP_Camera::setup_feedback_callback(void)
 {
-    if (_feedback_pin <= 0 || _timer_installed || _isr_installed) {
-        // invalid or already installed
-        return;
-    }
 
-    // ensure we are in input mode
-    hal.gpio->pinMode(_feedback_pin, HAL_GPIO_INPUT);
-
-    // enable pullup/pulldown
-    uint8_t trigger_polarity = _feedback_polarity==0?0:1;
-    hal.gpio->write(_feedback_pin, !trigger_polarity);
-
-    if (hal.gpio->attach_interrupt(_feedback_pin, FUNCTOR_BIND_MEMBER(&AP_Camera::feedback_pin_isr, void, uint8_t, bool, uint32_t),
-                                   trigger_polarity?AP_HAL::GPIO::INTERRUPT_RISING:AP_HAL::GPIO::INTERRUPT_FALLING)) {
-        _isr_installed = true;
-    } else {
-        // install a 1kHz timer to check feedback pin
-        hal.scheduler->register_timer_process(FUNCTOR_BIND_MEMBER(&AP_Camera::feedback_pin_timer, void));
-
-        _timer_installed = true;
-    }
 }
 
 // log_picture - log picture taken and send feedback to GCS
 void AP_Camera::log_picture()
 {
-    DataFlash_Class *df = DataFlash_Class::instance();
-    if (df == nullptr) {
-        return;
-    }
-    if (!using_feedback_pin()) {
-        gcs().send_message(MSG_CAMERA_FEEDBACK);
-        if (df->should_log(log_camera_bit)) {
-            df->Log_Write_Camera(ahrs, current_loc);
-        }
-    } else {
-        if (df->should_log(log_camera_bit)) {
-            df->Log_Write_Trigger(ahrs, current_loc);
-        }
-    }
+
 }
 
 // take_picture - take a picture
 void AP_Camera::take_picture()
 {
-    // take a local picture:
-    trigger_pic();
 
-    // tell all of our components to take a picture:
-    mavlink_command_long_t cmd_msg;
-    memset(&cmd_msg, 0, sizeof(cmd_msg));
-    cmd_msg.command = MAV_CMD_DO_DIGICAM_CONTROL;
-    cmd_msg.param5 = 1;
-    // create message
-    mavlink_message_t msg;
-    mavlink_msg_command_long_encode(0, 0, &msg, &cmd_msg);
-
-    // forward to all components
-    GCS_MAVLINK::send_to_components(&msg);
 }
 
 /*
@@ -430,22 +209,7 @@ void AP_Camera::take_picture()
  */
 void AP_Camera::update_trigger()
 {
-    trigger_pic_cleanup();
-    
-    if (_camera_trigger_logged != _camera_trigger_count) {
-        uint32_t timestamp32 = _feedback_timestamp_us;
-        _camera_trigger_logged = _camera_trigger_count;
 
-        gcs().send_message(MSG_CAMERA_FEEDBACK);
-        DataFlash_Class *df = DataFlash_Class::instance();
-        if (df != nullptr) {
-            if (df->should_log(log_camera_bit)) {
-                uint32_t tdiff = AP_HAL::micros() - timestamp32;
-                uint64_t timestamp = AP_HAL::micros64();
-                df->Log_Write_Camera(ahrs, current_loc, timestamp - tdiff);
-            }
-        }
-    }
 }
 
 // singleton instance

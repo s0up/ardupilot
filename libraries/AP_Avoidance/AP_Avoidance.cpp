@@ -332,53 +332,6 @@ void AP_Avoidance::update_threat_level(const Location &my_loc,
                                        AP_Avoidance::Obstacle &obstacle)
 {
 
-    Location &obstacle_loc = obstacle._location;
-    Vector3f &obstacle_vel = obstacle._velocity;
-
-    obstacle.threat_level = MAV_COLLISION_THREAT_LEVEL_NONE;
-
-    const uint32_t obstacle_age = AP_HAL::millis() - obstacle.timestamp_ms;
-    float closest_xy = closest_approach_xy(my_loc, my_vel, obstacle_loc, obstacle_vel, _fail_time_horizon + obstacle_age/1000);
-    if (closest_xy < _fail_distance_xy) {
-        obstacle.threat_level = MAV_COLLISION_THREAT_LEVEL_HIGH;
-    } else {
-        closest_xy = closest_approach_xy(my_loc, my_vel, obstacle_loc, obstacle_vel, _warn_time_horizon + obstacle_age/1000);
-        if (closest_xy < _warn_distance_xy) {
-            obstacle.threat_level = MAV_COLLISION_THREAT_LEVEL_LOW;
-        }
-    }
-
-    // check for vertical separation; our threat level is the minimum
-    // of vertical and horizontal threat levels
-    float closest_z = closest_approach_z(my_loc, my_vel, obstacle_loc, obstacle_vel, _warn_time_horizon + obstacle_age/1000);
-    if (obstacle.threat_level != MAV_COLLISION_THREAT_LEVEL_NONE) {
-        if (closest_z > _warn_distance_z) {
-            obstacle.threat_level = MAV_COLLISION_THREAT_LEVEL_NONE;
-        } else {
-            closest_z = closest_approach_z(my_loc, my_vel, obstacle_loc, obstacle_vel, _fail_time_horizon + obstacle_age/1000);
-            if (closest_z > _fail_distance_z) {
-                obstacle.threat_level = MAV_COLLISION_THREAT_LEVEL_LOW;
-            }
-        }
-    }
-
-    // If we haven't heard from a vehicle then assume it is no threat
-    if (obstacle_age > MAX_OBSTACLE_AGE_MS) {
-        obstacle.threat_level = MAV_COLLISION_THREAT_LEVEL_NONE;
-    }
-
-    // could optimise this to not calculate a lot of this if threat
-    // level is none - but only *once the GCS has been informed*!
-    obstacle.closest_approach_xy = closest_xy;
-    obstacle.closest_approach_z = closest_z;
-    float current_distance = get_distance(my_loc, obstacle_loc);
-    obstacle.distance_to_closest_approach = current_distance - closest_xy;
-    Vector2f net_velocity_ne = Vector2f(my_vel[0] - obstacle_vel[0], my_vel[1] - obstacle_vel[1]);
-    obstacle.time_to_closest_approach = 0.0f;
-    if (!is_zero(obstacle.distance_to_closest_approach) &&
-        ! is_zero(net_velocity_ne.length())) {
-        obstacle.time_to_closest_approach = obstacle.distance_to_closest_approach / net_velocity_ne.length();
-    }
 }
 
 MAV_COLLISION_THREAT_LEVEL AP_Avoidance::current_threat_level() const {
@@ -393,92 +346,17 @@ MAV_COLLISION_THREAT_LEVEL AP_Avoidance::current_threat_level() const {
 
 void AP_Avoidance::handle_threat_gcs_notify(AP_Avoidance::Obstacle *threat)
 {
-    if (threat == nullptr) {
-        return;
-    }
-
-    uint32_t now = AP_HAL::millis();
-    if (threat->threat_level == MAV_COLLISION_THREAT_LEVEL_NONE) {
-        // only send cleared messages for a few seconds:
-        if (_gcs_cleared_messages_first_sent == 0) {
-            _gcs_cleared_messages_first_sent = now;
-        }
-        if (now - _gcs_cleared_messages_first_sent > _gcs_cleared_messages_duration * 1000) {
-            return;
-        }
-    } else {
-        _gcs_cleared_messages_first_sent = 0;
-    }
-    if (now - threat->last_gcs_report_time > _gcs_notify_interval * 1000) {
-        GCS_MAVLINK::send_collision_all(*threat, mav_avoidance_action());
-        threat->last_gcs_report_time = now;
-    }
 
 }
 
 bool AP_Avoidance::obstacle_is_more_serious_threat(const AP_Avoidance::Obstacle &obstacle) const
 {
-    if (_current_most_serious_threat == -1) {
-        // any threat is more of a threat than no threat
-        return true;
-    }
-    const AP_Avoidance::Obstacle &current = _obstacles[_current_most_serious_threat];
-    if (obstacle.threat_level > current.threat_level) {
-        // threat_level is updated by update_threat_level
-        return true;
-    }
-    if (obstacle.threat_level == current.threat_level &&
-        obstacle.time_to_closest_approach < current.time_to_closest_approach) {
-        return true;
-    }
     return false;
 }
 
 void AP_Avoidance::check_for_threats()
 {
-    Location my_loc;
-    if (!_ahrs.get_position(my_loc)) {
-        // if we don't know our own location we can't determine any threat level
-        return;
-    }
 
-    Vector3f my_vel;
-    if (!_ahrs.get_velocity_NED(my_vel)) {
-        // assuming our own velocity to be zero here may cause us to
-        // fly into something.  Better not to attempt to avoid in this
-        // case.
-        return;
-    }
-
-    // we always check all obstacles to see if they are threats since it
-    // is most likely our own position and/or velocity have changed
-    // determine the current most-serious-threat
-    _current_most_serious_threat = -1;
-    for (uint8_t i=0; i<_obstacle_count; i++) {
-
-        AP_Avoidance::Obstacle &obstacle = _obstacles[i];
-        const uint32_t obstacle_age = AP_HAL::millis() - obstacle.timestamp_ms;
-        debug("i=%d src_id=%d timestamp=%u age=%d", i, obstacle.src_id, obstacle.timestamp_ms, obstacle_age);
-
-        update_threat_level(my_loc, my_vel, obstacle);
-        debug("   threat-level=%d", obstacle.threat_level);
-
-        // ignore any really old data:
-        if (obstacle_age > MAX_OBSTACLE_AGE_MS) {
-            // shrink list if this is the last entry:
-            if (i == _obstacle_count-1) {
-                _obstacle_count -= 1;
-            }
-            continue;
-        }
-
-        if (obstacle_is_more_serious_threat(obstacle)) {
-            _current_most_serious_threat = i;
-        }
-    }
-    if (_current_most_serious_threat != -1) {
-        debug("Current most serious threat: %d level=%d", _current_most_serious_threat, _obstacles[_current_most_serious_threat].threat_level);
-    }
 }
 
 
@@ -494,138 +372,24 @@ AP_Avoidance::Obstacle *AP_Avoidance::most_serious_threat()
 
 void AP_Avoidance::update()
 {
-    if (!check_startup()) {
-        return;
-    }
 
-    if (_adsb.enabled()) {
-        get_adsb_samples();
-    }
-
-    check_for_threats();
-
-    // notify GCS of most serious thread
-    handle_threat_gcs_notify(most_serious_threat());
-
-    // avoid object (if necessary)
-    handle_avoidance_local(most_serious_threat());
 }
 
 void AP_Avoidance::handle_avoidance_local(AP_Avoidance::Obstacle *threat)
 {
-    MAV_COLLISION_THREAT_LEVEL new_threat_level = MAV_COLLISION_THREAT_LEVEL_NONE;
-    MAV_COLLISION_ACTION action = MAV_COLLISION_ACTION_NONE;
 
-    if (threat != nullptr) {
-        new_threat_level = threat->threat_level;
-        if (new_threat_level == MAV_COLLISION_THREAT_LEVEL_HIGH) {
-            action = (MAV_COLLISION_ACTION)_fail_action.get();
-            Location my_loc;
-            if (action != MAV_COLLISION_ACTION_NONE && _fail_altitude_minimum > 0 &&
-             _ahrs.get_position(my_loc) && ((my_loc.alt*0.01f) < _fail_altitude_minimum)) {
-                // disable avoidance when close to ground, report only
-                action = MAV_COLLISION_ACTION_REPORT;
-			}
-		}
-    }
-
-    uint32_t now = AP_HAL::millis();
-
-    if (new_threat_level != _threat_level) {
-        // transition to higher states immediately, recovery to lower states more slowly
-        if (((now - _last_state_change_ms) > AP_AVOIDANCE_STATE_RECOVERY_TIME_MS) || (new_threat_level > _threat_level)) {
-            // handle recovery from high threat level
-            if (_threat_level == MAV_COLLISION_THREAT_LEVEL_HIGH) {
-                handle_recovery(_fail_recovery);
-                _latest_action = MAV_COLLISION_ACTION_NONE;
-            }
-
-            // update state
-            _last_state_change_ms = now;
-            _threat_level = new_threat_level;
-        }
-    }
-
-    // handle ongoing threat by calling vehicle specific handler
-    if ((threat != nullptr) && (_threat_level == MAV_COLLISION_THREAT_LEVEL_HIGH) && (action > MAV_COLLISION_ACTION_REPORT)) {
-        _latest_action = handle_avoidance(threat, action);
-    }
 }
 
 
 void AP_Avoidance::handle_msg(const mavlink_message_t &msg)
 {
-    if (!check_startup()) {
-        // avoidance is not active / allocated
-        return;
-    }
 
-    if (msg.msgid != MAVLINK_MSG_ID_GLOBAL_POSITION_INT) {
-        // we only take position from GLOBAL_POSITION_INT
-        return;
-    }
-
-    if (msg.sysid == mavlink_system.sysid) {
-        // we do not obstruct ourselves....
-        return;
-    }
-
-    // inform AP_Avoidance we have a new player
-    mavlink_global_position_int_t packet;
-    mavlink_msg_global_position_int_decode(&msg, &packet);
-    Location loc;
-    loc.lat = packet.lat;
-    loc.lng = packet.lon;
-    loc.alt = packet.alt / 10; // mm -> cm
-    loc.flags.relative_alt = false;
-    Vector3f vel = Vector3f(packet.vx/100.0f, // cm to m
-                            packet.vy/100.0f,
-                            packet.vz/100.0f);
-    add_obstacle(AP_HAL::millis(),
-                 MAV_COLLISION_SRC_MAVLINK_GPS_GLOBAL_INT,
-                 msg.sysid,
-                 loc,
-                 vel);
 }
 
 // get unit vector away from the nearest obstacle
 bool AP_Avoidance::get_vector_perpendicular(const AP_Avoidance::Obstacle *obstacle, Vector3f &vec_neu)
 {
-    if (obstacle == nullptr) {
-        // why where we called?!
-        return false;
-    }
-
-    Location my_abs_pos;
-    if (!_ahrs.get_position(my_abs_pos)) {
-        // we should not get to here!  If we don't know our position
-        // we can't know if there are any threats, for starters!
-        return false;
-    }
-
-    // if their velocity is moving around close to zero then flying
-    // perpendicular to that velocity may mean we do weird things.
-    // Instead, we will fly directly away from them
-    if (obstacle->_velocity.length() < _low_velocity_threshold) {
-        const Vector2f delta_pos_xy =  location_diff(obstacle->_location, my_abs_pos);
-        const float delta_pos_z = my_abs_pos.alt - obstacle->_location.alt;
-        Vector3f delta_pos_xyz = Vector3f(delta_pos_xy.x, delta_pos_xy.y, delta_pos_z);
-        // avoid div by zero
-        if (delta_pos_xyz.is_zero()) {
-            return false;
-        }
-        delta_pos_xyz.normalize();
-        vec_neu = delta_pos_xyz;
-        return true;
-    } else {
-        vec_neu = perpendicular_xyz(obstacle->_location, obstacle->_velocity, my_abs_pos);
-        // avoid div by zero
-        if (vec_neu.is_zero()) {
-            return false;
-        }
-        vec_neu.normalize();
-        return true;
-    }
+    return false;
 }
 
 // helper functions to calculate 3D destination to get us away from obstacle

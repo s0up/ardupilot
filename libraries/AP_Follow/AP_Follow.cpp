@@ -132,87 +132,12 @@ AP_Follow::AP_Follow() :
 bool AP_Follow::get_target_location_and_velocity(Location &loc, Vector3f &vel_ned) const
 {
     // exit immediately if not enabled
-    if (!_enabled) {
-        return false;
-    }
-
-    // check for timeout
-    if ((_last_location_update_ms == 0) || (AP_HAL::millis() - _last_location_update_ms > AP_FOLLOW_TIMEOUT_MS)) {
-        return false;
-    }
-
-    // calculate time since last actual position update
-    const float dt = (AP_HAL::millis() - _last_location_update_ms) * 0.001f;
-
-    // get velocity estimate
-    if (!get_velocity_ned(vel_ned, dt)) {
-        return false;
-    }
-
-    // project the vehicle position
-    Location last_loc = _target_location;
-    location_offset(last_loc, vel_ned.x * dt, vel_ned.y * dt);
-    last_loc.alt -= vel_ned.z * 10.0f * dt; // convert m/s to cm/s, multiply by dt.  minus because NED
-
-    // return latest position estimate
-    loc = last_loc;
-    return true;
+    return false;
 }
 
 // get distance vector to target (in meters) and target's velocity all in NED frame
 bool AP_Follow::get_target_dist_and_vel_ned(Vector3f &dist_ned, Vector3f &dist_with_offs, Vector3f &vel_ned)
 {
-    // get our location
-    Location current_loc;
-    if (!AP::ahrs().get_position(current_loc)) {
-        clear_dist_and_bearing_to_target();
-         return false;
-    }
-
-    // get target location and velocity
-    Location target_loc;
-    Vector3f veh_vel;
-    if (!get_target_location_and_velocity(target_loc, veh_vel)) {
-        clear_dist_and_bearing_to_target();
-        return false;
-    }
-
-    // change to altitude above home if relative altitude is being used
-    if (target_loc.flags.relative_alt == 1) {
-        current_loc.alt -= AP::ahrs().get_home().alt;
-    }
-
-    // calculate difference
-    const Vector3f dist_vec = location_3d_diff_NED(current_loc, target_loc);
-
-    // fail if too far
-    if (is_positive(_dist_max.get()) && (dist_vec.length() > _dist_max)) {
-        clear_dist_and_bearing_to_target();
-        return false;
-    }
-
-    // initialise offsets from distance vector if required
-    init_offsets_if_required(dist_vec);
-
-    // get offsets
-    Vector3f offsets;
-    if (!get_offsets_ned(offsets)) {
-        clear_dist_and_bearing_to_target();
-        return false;
-    }
-
-    // calculate results
-    dist_ned = dist_vec;
-    dist_with_offs = dist_vec + offsets;
-    vel_ned = veh_vel;
-
-    // record distance and heading for reporting purposes
-    if (is_zero(dist_with_offs.x) && is_zero(dist_with_offs.y)) {
-        clear_dist_and_bearing_to_target();
-    } else {
-        _dist_to_target = safe_sqrt(sq(dist_with_offs.x) + sq(dist_with_offs.y));
-        _bearing_to_target = degrees(atan2f(dist_with_offs.y, dist_with_offs.x));
-    }
 
     return true;
 }
@@ -220,158 +145,31 @@ bool AP_Follow::get_target_dist_and_vel_ned(Vector3f &dist_ned, Vector3f &dist_w
 // get target's heading in degrees (0 = north, 90 = east)
 bool AP_Follow::get_target_heading(float &heading) const
 {
-    // exit immediately if not enabled
-    if (!_enabled) {
-        return false;
-    }
 
-    // check for timeout
-    if ((_last_heading_update_ms == 0) || (AP_HAL::millis() - _last_heading_update_ms > AP_FOLLOW_TIMEOUT_MS)) {
-        return false;
-    }
-
-    // return latest heading estimate
-    heading = _target_heading;
     return true;
 }
 
 // handle mavlink DISTANCE_SENSOR messages
 void AP_Follow::handle_msg(const mavlink_message_t &msg)
 {
-    // exit immediately if not enabled
-    if (!_enabled) {
-        return;
-    }
 
-    // skip our own messages
-    if (msg.sysid == mavlink_system.sysid) {
-        return;
-    }
-
-    // skip message if not from our target
-    if (_sysid != 0 && msg.sysid != _sysid) {
-        if (_automatic_sysid) {
-            // maybe timeout who we were following...
-            if ((_last_location_update_ms == 0) || (AP_HAL::millis() - _last_location_update_ms > AP_FOLLOW_SYSID_TIMEOUT_MS)) {
-                _sysid.set(0);
-            }
-        }
-        return;
-    }
-
-    // decode global-position-int message
-    if (msg.msgid == MAVLINK_MSG_ID_GLOBAL_POSITION_INT) {
-
-        const uint32_t now = AP_HAL::millis();
-
-        // get estimated location and velocity (for logging)
-        Location loc_estimate{};
-        Vector3f vel_estimate;
-        UNUSED_RESULT(get_target_location_and_velocity(loc_estimate, vel_estimate));
-
-        // decode message
-        mavlink_global_position_int_t packet;
-        mavlink_msg_global_position_int_decode(&msg, &packet);
-
-        // ignore message if lat and lon are (exactly) zero
-        if ((packet.lat == 0 && packet.lon == 0)) {
-            return;
-        }
-
-        _target_location.lat = packet.lat;
-        _target_location.lng = packet.lon;
-
-        // select altitude source based on FOLL_ALT_TYPE param 
-        if (_alt_type == AP_FOLLOW_ALTITUDE_TYPE_RELATIVE) {
-            // relative altitude
-            _target_location.alt = packet.relative_alt / 10;        // convert millimeters to cm
-            _target_location.flags.relative_alt = 1;                // set relative_alt flag
-        } else {
-            // absolute altitude
-            _target_location.alt = packet.alt / 10;                 // convert millimeters to cm
-            _target_location.flags.relative_alt = 0;                // reset relative_alt flag
-        }
-
-        _target_velocity_ned.x = packet.vx * 0.01f; // velocity north
-        _target_velocity_ned.y = packet.vy * 0.01f; // velocity east
-        _target_velocity_ned.z = packet.vz * 0.01f; // velocity down
-        _last_location_update_ms = now;
-        if (packet.hdg <= 36000) {                  // heading (UINT16_MAX if unknown)
-            _target_heading = packet.hdg * 0.01f;   // convert centi-degrees to degrees
-            _last_heading_update_ms = now;
-        }
-        // initialise _sysid if zero to sender's id
-        if (_sysid == 0) {
-            _sysid.set(msg.sysid);
-            _automatic_sysid = true;
-        }
-
-        // log lead's estimated vs reported position
-        DataFlash_Class::instance()->Log_Write("FOLL",
-                                               "TimeUS,Lat,Lon,Alt,VelN,VelE,VelD,LatE,LonE,AltE",  // labels
-                                               "sDUmnnnDUm",    // units
-                                               "F--B000--B",    // mults
-                                               "QLLifffLLi",    // fmt
-                                               AP_HAL::micros64(),
-                                               _target_location.lat,
-                                               _target_location.lng,
-                                               _target_location.alt,
-                                               (double)_target_velocity_ned.x,
-                                               (double)_target_velocity_ned.y,
-                                               (double)_target_velocity_ned.z,
-                                               loc_estimate.lat,
-                                               loc_estimate.lng,
-                                               loc_estimate.alt
-                                               );
-    }
 }
 
 // get velocity estimate in m/s in NED frame using dt since last update
 bool AP_Follow::get_velocity_ned(Vector3f &vel_ned, float dt) const
 {
-    vel_ned = _target_velocity_ned + (_target_accel_ned * dt);
     return true;
 }
 
 // initialise offsets to provided distance vector to other vehicle (in meters in NED frame) if required
 void AP_Follow::init_offsets_if_required(const Vector3f &dist_vec_ned)
 {
-    // return immediately if offsets have already been set
-    if (!_offset.get().is_zero()) {
-        return;
-    }
 
-    float target_heading_deg;
-    if ((_offset_type == AP_FOLLOW_OFFSET_TYPE_RELATIVE) && get_target_heading(target_heading_deg)) {
-        // rotate offsets from north facing to vehicle's perspective
-        _offset = rotate_vector(-dist_vec_ned, -target_heading_deg);
-    } else {
-        // initialise offset in NED frame
-        _offset = -dist_vec_ned;
-        // ensure offset_type used matches frame of offsets saved
-        _offset_type = AP_FOLLOW_OFFSET_TYPE_NED;
-    }
 }
 
 // get offsets in meters in NED frame
 bool AP_Follow::get_offsets_ned(Vector3f &offset) const
 {
-    const Vector3f &off = _offset.get();
-
-    // if offsets are zero or type is NED, simply return offset vector
-    if (off.is_zero() || (_offset_type == AP_FOLLOW_OFFSET_TYPE_NED)) {
-        offset = off;
-        return true;
-    }
-
-    // offset type is relative, exit if we cannot get vehicle's heading
-    float target_heading_deg;
-    if (!get_target_heading(target_heading_deg)) {
-        return false;
-    }
-
-    // rotate offsets from vehicle's perspective to NED
-    offset = rotate_vector(off, target_heading_deg);
     return true;
 }
 
@@ -387,6 +185,5 @@ Vector3f AP_Follow::rotate_vector(const Vector3f &vec, float angle_deg) const
 // set recorded distance and bearing to target to zero
 void AP_Follow::clear_dist_and_bearing_to_target()
 {
-    _dist_to_target = 0.0f;
-    _bearing_to_target = 0.0f;
+
 }

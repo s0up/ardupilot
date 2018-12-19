@@ -65,6 +65,13 @@ romfs = {}
 # SPI bus list
 spi_list = []
 
+# list of stubbed out libraries:
+stubbed_out_libs = []
+
+# list of stubbed out files:
+stubbed_out_files = []
+
+
 # all config lines in order
 alllines = []
 
@@ -577,6 +584,17 @@ def write_mcu_config(f):
 
     f.write('\n// APJ board ID (for bootloaders)\n')
     f.write('#define APJ_BOARD_ID %s\n' % get_config('APJ_BOARD_ID'))
+
+    for k in stubbed_out_libs:
+        print("Stubbing out: %s" % k)
+        env_vars["STUB_OUT_%s" % k] = 1
+        f.write('#define STUB_OUT_%s 1\n' % k)
+
+    for k in stubbed_out_files:
+        print("Stubbing out file: %s" % k)
+        env_vars["STUB_FILE_OUT_%s" % k] = 1
+        f.write('#define STUB_FILE_OUT_%s 1\n' % k)
+    f.write('\n')
 
     lib = get_mcu_lib(mcu_type)
     build_info = lib.build
@@ -1447,6 +1465,10 @@ def process_line(line):
             p.af = af
     if a[0] == 'SPIDEV':
         spidev.append(a[1:])
+    if a[0] == 'STUB_OUT':
+        stubbed_out_libs.extend(a[1:])
+    if a[0] == 'STUB_FILE_OUT':
+        stubbed_out_files.extend(a[1:])
     if a[0] == 'ROMFS':
         romfs_add(a[1],a[2])
     if a[0] == 'ROMFS_WILDCARD':

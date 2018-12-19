@@ -15,85 +15,26 @@ extern const AP_HAL::HAL& hal;
 // Check basic filter health metrics and return a consolidated health status
 bool NavEKF2_core::healthy(void) const
 {
-    uint16_t faultInt;
-    getFilterFaults(faultInt);
-    if (faultInt > 0) {
-        return false;
-    }
-    if (velTestRatio > 1 && posTestRatio > 1 && hgtTestRatio > 1) {
-        // all three metrics being above 1 means the filter is
-        // extremely unhealthy.
-        return false;
-    }
-    // Give the filter a second to settle before use
-    if ((imuSampleTime_ms - ekfStartTime_ms) < 1000 ) {
-        return false;
-    }
-    // position and height innovations must be within limits when on-ground and in a static mode of operation
-    float horizErrSq = sq(innovVelPos[3]) + sq(innovVelPos[4]);
-    if (onGround && (PV_AidingMode == AID_NONE) && ((horizErrSq > 1.0f) || (fabsf(hgtInnovFiltState) > 1.0f))) {
-        return false;
-    }
-
-    // all OK
-    return true;
+   return false;
 }
 
 // Return a consolidated error score where higher numbers represent larger errors
 // Intended to be used by the front-end to determine which is the primary EKF
 float NavEKF2_core::errorScore() const
 {
-    float score = 0.0f;
-    if (tiltAlignComplete && yawAlignComplete) {
-        // Check GPS fusion performance
-        score = MAX(score, 0.5f * (velTestRatio + posTestRatio));
-        // Check altimeter fusion performance
-        score = MAX(score, hgtTestRatio);
-        // Check attitude corrections
-        const float tiltErrThreshold = 0.05f;
-        score = MAX(score, tiltErrFilt / tiltErrThreshold);
-    }
-    return score;
+   return 0.0f;
 }
 
 // return data for debugging optical flow fusion
 void NavEKF2_core::getFlowDebug(float &varFlow, float &gndOffset, float &flowInnovX, float &flowInnovY, float &auxInnov, float &HAGL, float &rngInnov, float &range, float &gndOffsetErr) const
 {
-    varFlow = MAX(flowTestRatio[0],flowTestRatio[1]);
-    gndOffset = terrainState;
-    flowInnovX = innovOptFlow[0];
-    flowInnovY = innovOptFlow[1];
-    auxInnov = auxFlowObsInnov;
-    HAGL = terrainState - stateStruct.position.z;
-    rngInnov = innovRng;
-    range = rangeDataDelayed.rng;
-    gndOffsetErr = sqrtf(Popt); // note Popt is constrained to be non-negative in EstimateTerrainOffset()
+
 }
 
 // return data for debugging range beacon fusion one beacon at a time, incrementing the beacon index after each call
 bool NavEKF2_core::getRangeBeaconDebug(uint8_t &ID, float &rng, float &innov, float &innovVar, float &testRatio, Vector3f &beaconPosNED, float &offsetHigh, float &offsetLow)
 {
-    // if the states have not been initialised or we have not received any beacon updates then return zeros
-    if (!statesInitialised || N_beacons == 0) {
-        return false;
-    }
-
-    // Ensure that beacons are not skipped due to calling this function at a rate lower than the updates
-    if (rngBcnFuseDataReportIndex >= N_beacons) {
-        rngBcnFuseDataReportIndex = 0;
-    }
-
-    // Output the fusion status data for the specified beacon
-    ID = rngBcnFuseDataReportIndex;                                             // beacon identifier
-    rng = rngBcnFusionReport[rngBcnFuseDataReportIndex].rng;                    // measured range to beacon (m)
-    innov = rngBcnFusionReport[rngBcnFuseDataReportIndex].innov;                // range innovation (m)
-    innovVar = rngBcnFusionReport[rngBcnFuseDataReportIndex].innovVar;          // innovation variance (m^2)
-    testRatio = rngBcnFusionReport[rngBcnFuseDataReportIndex].testRatio;        // innovation consistency test ratio
-    beaconPosNED = rngBcnFusionReport[rngBcnFuseDataReportIndex].beaconPosNED;  // beacon NED position
-    offsetHigh = bcnPosOffsetMax;                                               // beacon system vertical pos offset upper estimate
-    offsetLow = bcnPosOffsetMin;                                                // beacon system vertical pos offset lower estimate
-    rngBcnFuseDataReportIndex++;
-    return true;
+   return false;
 }
 
 // provides the height limit to be observed by the control loops
@@ -101,61 +42,38 @@ bool NavEKF2_core::getRangeBeaconDebug(uint8_t &ID, float &rng, float &innov, fl
 // this is needed to ensure the vehicle does not fly too high when using optical flow navigation
 bool NavEKF2_core::getHeightControlLimit(float &height) const
 {
-    // only ask for limiting if we are doing optical flow only navigation
-    if (frontend->_fusionModeGPS == 3 && (PV_AidingMode == AID_RELATIVE) && flowDataValid) {
-        // If are doing optical flow nav, ensure the height above ground is within range finder limits after accounting for vehicle tilt and control errors
-        height = MAX(float(frontend->_rng.max_distance_cm_orient(ROTATION_PITCH_270)) * 0.007f - 1.0f, 1.0f);
-        // If we are are not using the range finder as the height reference, then compensate for the difference between terrain and EKF origin
-        if (frontend->_altSource != 1) {
-            height -= terrainState;
-        }
-        return true;
-    } else {
-        return false;
-    }
+    return false;
 }
 
 
 // return the Euler roll, pitch and yaw angle in radians
 void NavEKF2_core::getEulerAngles(Vector3f &euler) const
 {
-    outputDataNew.quat.to_euler(euler.x, euler.y, euler.z);
-    euler = euler - _ahrs->get_trim();
+
 }
 
 // return body axis gyro bias estimates in rad/sec
 void NavEKF2_core::getGyroBias(Vector3f &gyroBias) const
 {
-    if (dtEkfAvg < 1e-6f) {
-        gyroBias.zero();
-        return;
-    }
-    gyroBias = stateStruct.gyro_bias / dtEkfAvg;
+
 }
 
 // return body axis gyro scale factor error as a percentage
 void NavEKF2_core::getGyroScaleErrorPercentage(Vector3f &gyroScale) const
 {
-    if (!statesInitialised) {
-        gyroScale.x = gyroScale.y = gyroScale.z = 0;
-        return;
-    }
-    gyroScale.x = 100.0f/stateStruct.gyro_scale.x - 100.0f;
-    gyroScale.y = 100.0f/stateStruct.gyro_scale.y - 100.0f;
-    gyroScale.z = 100.0f/stateStruct.gyro_scale.z - 100.0f;
+
 }
 
 // return tilt error convergence metric
 void NavEKF2_core::getTiltError(float &ang) const
 {
-    ang = tiltErrFilt;
+
 }
 
 // return the transformation matrix from XYZ (body) to NED axes
 void NavEKF2_core::getRotationBodyToNED(Matrix3f &mat) const
 {
-    outputDataNew.quat.rotation_matrix(mat);
-    mat = mat * _ahrs->get_rotation_vehicle_body_to_autopilot_body();
+
 }
 
 // return the quaternions defining the rotation from NED to XYZ (body) axes
